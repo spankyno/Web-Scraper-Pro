@@ -169,21 +169,34 @@ const Sidebar = ({ user, onLogout }: { user: any, onLogout: () => void }) => {
 // --- Modals ---
 
 const FullResultModal = ({ isOpen, onClose, result }: { isOpen: boolean, onClose: () => void, result: any }) => {
+  const handleCopy = () => {
+    const text = JSON.stringify(result, null, 2);
+    navigator.clipboard.writeText(text);
+    toast.success("Result copied to clipboard");
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Full Extraction Result</DialogTitle>
-          <DialogDescription>
-            Complete raw data from the last extraction.
-          </DialogDescription>
+      <DialogContent className="max-w-[90vw] w-full max-h-[90vh] flex flex-col">
+        <DialogHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <DialogTitle>Full Extraction Result</DialogTitle>
+            <DialogDescription>
+              Complete raw data from the extraction.
+            </DialogDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
+            <Copy size={14} /> Copy JSON
+          </Button>
         </DialogHeader>
-        <ScrollArea className="flex-1 bg-muted/50 rounded-md p-4">
-          <pre className="text-xs font-mono whitespace-pre-wrap break-all">
-            {JSON.stringify(result, null, 2)}
-          </pre>
+        <ScrollArea className="flex-1 bg-muted/50 rounded-md border mt-4">
+          <div className="p-4">
+            <pre className="text-xs font-mono whitespace-pre-wrap break-all">
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          </div>
         </ScrollArea>
-        <DialogFooter>
+        <DialogFooter className="mt-4">
           <Button onClick={onClose}>Close</Button>
         </DialogFooter>
       </DialogContent>
