@@ -754,6 +754,8 @@ const Favorites = () => {
 const HistoryPage = () => {
   const [jobs, setJobs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedJob, setSelectedJob] = useState<any | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchJobs = async () => {
@@ -814,8 +816,8 @@ const HistoryPage = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="sm" onClick={() => {
-                      // Logic to view result
-                      toast.info("Result details coming soon");
+                      setSelectedJob(job);
+                      setIsModalOpen(true);
                     }}>
                       <Eye size={14} />
                     </Button>
@@ -832,6 +834,12 @@ const HistoryPage = () => {
           </TableBody>
         </Table>
       </Card>
+
+      <FullResultModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        result={selectedJob?.result} 
+      />
     </div>
   );
 };
