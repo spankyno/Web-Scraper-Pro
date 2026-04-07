@@ -31,7 +31,8 @@ import {
   Clock,
   TrendingDown,
   TrendingUp,
-  Minus
+  Minus,
+  Copy
 } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
@@ -74,18 +75,18 @@ interface MonitoredItem {
   id: string;
   url: string;
   title: string;
-  priceCurrent: number;
-  pricePrevious: number;
-  priceCurrency: string;
+  price_current: number;
+  price_previous: number;
+  price_currency: string;
   status: "up" | "down" | "stable" | "out_of_stock";
-  lastChecked: string;
-  isActive: boolean;
-  priceSelector?: string;
-  customSelectors?: string;
+  last_checked: string;
+  is_active: boolean;
+  price_selector?: string;
+  custom_selectors?: string;
   threshold?: number;
-  checkInterval?: string;
-  notificationChannel?: "telegram" | "email" | "both";
-  nextCheck?: string;
+  check_interval?: string;
+  notification_channel?: "telegram" | "email" | "both";
+  next_check?: string;
 }
 
 // --- Components ---
@@ -178,7 +179,7 @@ const FullResultModal = ({ isOpen, onClose, result }: { isOpen: boolean, onClose
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1 bg-muted/50 rounded-md p-4">
-          <pre className="text-xs font-mono whitespace-pre-wrap">
+          <pre className="text-xs font-mono whitespace-pre-wrap break-all">
             {JSON.stringify(result, null, 2)}
           </pre>
         </ScrollArea>
@@ -656,18 +657,18 @@ const Favorites = () => {
           ))
         ) : items.length > 0 ? (
           items.map((item) => {
-            const priceDiff = item.pricePrevious - item.priceCurrent;
-            const priceDiffPct = item.pricePrevious > 0 ? ((priceDiff / item.pricePrevious) * 100).toFixed(1) : 0;
+            const priceDiff = item.price_previous - item.price_current;
+            const priceDiffPct = item.price_previous > 0 ? ((priceDiff / item.price_previous) * 100).toFixed(1) : 0;
 
             return (
-              <Card key={item.id} className={`overflow-hidden border-2 transition-all group ${item.isActive ? "hover:border-primary/50" : "opacity-70 grayscale-[0.5]"}`}>
+              <Card key={item.id} className={`overflow-hidden border-2 transition-all group ${item.is_active ? "hover:border-primary/50" : "opacity-70 grayscale-[0.5]"}`}>
                 <CardHeader className="p-4 pb-2">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex gap-2">
-                      <Badge variant={item.isActive ? "default" : "secondary"} className="text-[10px] h-5">
-                        {item.isActive ? "ACTIVE" : "PAUSED"}
+                      <Badge variant={item.is_active ? "default" : "secondary"} className="text-[10px] h-5">
+                        {item.is_active ? "ACTIVE" : "PAUSED"}
                       </Badge>
-                      {item.isActive && getStatusBadge(item.status)}
+                      {item.is_active && getStatusBadge(item.status)}
                     </div>
                     <div className="flex items-center gap-1">
                       <Button 
@@ -690,7 +691,7 @@ const Favorites = () => {
                     <div>
                       <p className="text-xs text-muted-foreground font-medium">CURRENT PRICE</p>
                       <div className="flex items-center gap-2">
-                        <span className="text-2xl font-bold">{item.priceCurrency}{item.priceCurrent}</span>
+                        <span className="text-2xl font-bold">{item.price_currency || "€"}{item.price_current}</span>
                         {item.status === "down" && (
                           <span className="text-xs font-bold text-green-500">-{priceDiffPct}%</span>
                         )}
@@ -698,35 +699,35 @@ const Favorites = () => {
                     </div>
                     <div className="text-right">
                       <p className="text-[10px] text-muted-foreground font-medium uppercase">PREVIOUS</p>
-                      <p className="text-sm line-through text-muted-foreground">{item.priceCurrency}{item.pricePrevious}</p>
+                      <p className="text-sm line-through text-muted-foreground">{item.price_currency || "€"}{item.price_previous}</p>
                     </div>
                   </div>
 
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-muted-foreground flex items-center gap-1"><Clock size={10} /> Interval: {item.checkInterval}</span>
-                      <span className="text-muted-foreground flex items-center gap-1"><Bell size={10} /> {item.notificationChannel}</span>
+                      <span className="text-muted-foreground flex items-center gap-1"><Clock size={10} /> Interval: {item.check_interval}</span>
+                      <span className="text-muted-foreground flex items-center gap-1"><Bell size={10} /> {item.notification_channel}</span>
                     </div>
                   </div>
                 </CardContent>
                 <CardFooter className="p-4 pt-0 border-t bg-muted/30 flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground">Checked {new Date(item.lastChecked).toLocaleTimeString()}</span>
+                  <span className="text-[10px] text-muted-foreground">Checked {item.last_checked ? new Date(item.last_checked).toLocaleString() : "Never"}</span>
                   <div className="flex gap-2">
                     <Button 
                       variant="ghost" 
                       size="sm" 
                       className="h-7 text-[10px] gap-1 px-2"
-                      onClick={() => handleToggleActive(item.id, item.isActive)}
+                      onClick={() => handleToggleActive(item.id, item.is_active)}
                     >
-                      {item.isActive ? <Pause size={10} /> : <Play size={10} />}
-                      {item.isActive ? "Pause" : "Resume"}
+                      {item.is_active ? <Pause size={10} /> : <Play size={10} />}
+                      {item.is_active ? "Pause" : "Resume"}
                     </Button>
                     <Button 
                       variant="ghost" 
                       size="sm" 
                       className="h-7 text-[10px] gap-1 px-2"
                       onClick={() => handleCheckNow(item.id)}
-                      disabled={isChecking === item.id || !item.isActive}
+                      disabled={isChecking === item.id || !item.is_active}
                     >
                       {isChecking === item.id ? <Loader2 className="animate-spin" size={10} /> : <Search size={10} />}
                       Check Now
@@ -804,7 +805,20 @@ const HistoryPage = () => {
                     {new Date(job.created_at).toLocaleString()}
                   </TableCell>
                   <TableCell className="max-w-xs truncate font-medium">
-                    {job.url}
+                    <div className="flex items-center gap-2">
+                      <span className="truncate">{job.url}</span>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-6 w-6 shrink-0" 
+                        onClick={() => {
+                          navigator.clipboard.writeText(job.url);
+                          toast.success("URL copied to clipboard");
+                        }}
+                      >
+                        <Copy size={12} />
+                      </Button>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="text-[10px]">
