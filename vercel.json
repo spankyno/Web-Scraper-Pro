@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/api/scrape", "destination": "/api/scrape.ts" },
+    { "source": "/api/export", "destination": "/api/export.ts" },
+    { "source": "/api/notifications/test", "destination": "/api/notifications/test.ts" },
+    { "source": "/api/cron/check-prices", "destination": "/api/cron/check-prices.ts" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
