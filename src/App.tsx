@@ -204,14 +204,66 @@ const FullResultModal = ({ isOpen, onClose, result }: { isOpen: boolean, onClose
   );
 };
 
-const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle }: { isOpen: boolean, onClose: () => void, initialUrl: string, initialTitle?: string }) => {
+const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extractedData }: { isOpen: boolean, onClose: () => void, initialUrl: string, initialTitle?: string, extractedData?: any }) => {
   const [name, setName] = useState(initialTitle || "");
   const [priceSelector, setPriceSelector] = useState("");
+  const [priceCurrent, setPriceCurrent] = useState<number>(0);
+  const [priceCurrency, setPriceCurrency] = useState("€");
   const [customSelectors, setCustomSelectors] = useState("");
   const [threshold, setThreshold] = useState(10);
   const [interval, setInterval] = useState("1h");
   const [channel, setChannel] = useState<"telegram" | "email" | "both">("telegram");
   const [isSaving, setIsSaving] = useState(false);
+
+  // Helper to find potential prices in extracted data
+  const findPrices = (data: any): { key: string, value: string, numeric: number, currency: string }[] => {
+    if (!data || typeof data !== 'object') return [];
+    const prices: any[] = [];
+    
+    const checkValue = (key: string, val: any) => {
+      if (typeof val === 'string' || typeof val === 'number') {
+        const strVal = String(val);
+        // Look for numbers with currency symbols or just numbers in keys like 'price'
+        const hasCurrency = /[€$£]|eur|usd|gbp/i.test(strVal);
+        const isNumeric = !isNaN(parseFloat(strVal.replace(/[^\d.,]/g, '').replace(',', '.')));
+        const isPriceKey = /price|cost|valor|monto/i.test(key);
+
+        if (isNumeric && (hasCurrency || isPriceKey)) {
+          const numeric = parseFloat(strVal.replace(/[^\d.,]/g, '').replace(',', '.'));
+          const currencyMatch = strVal.match(/[€$£]|eur|usd|gbp/i);
+          const currency = currencyMatch ? currencyMatch[0].toUpperCase() : "€";
+          prices.push({ key, value: strVal, numeric, currency });
+        }
+      }
+    };
+
+    Object.entries(data).forEach(([k, v]) => {
+      if (Array.isArray(v)) {
+        v.forEach((item, i) => {
+          if (typeof item === 'object') {
+            Object.entries(item).forEach(([subK, subV]) => checkValue(`${k}[${i}].${subK}`, subV));
+          } else {
+            checkValue(`${k}[${i}]`, item);
+          }
+        });
+      } else if (typeof v === 'object' && v !== null) {
+        Object.entries(v).forEach(([subK, subV]) => checkValue(`${k}.${subK}`, subV));
+      } else {
+        checkValue(k, v);
+      }
+    });
+
+    return prices;
+  };
+
+  const detectedPrices = findPrices(extractedData);
+
+  const selectPrice = (p: any) => {
+    setPriceSelector(p.key);
+    setPriceCurrent(p.numeric);
+    setPriceCurrency(p.currency);
+    toast.info(`Selected price: ${p.value}`);
+  };
 
   const handleSave = async () => {
     if (!name) return toast.error("Please enter a name");
@@ -230,8 +282,9 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle }: { isOpe
         check_interval: interval,
         notification_channel: channel,
         is_active: true,
-        price_current: 0,
-        price_previous: 0,
+        price_current: priceCurrent,
+        price_previous: priceCurrent,
+        price_currency: priceCurrency,
         status: "stable",
         last_checked: new Date().toISOString(),
         next_check: new Date().toISOString()
@@ -249,27 +302,65 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle }: { isOpe
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add to Favorites</DialogTitle>
           <DialogDescription>
             Configure monitoring for this URL.
           </DialogDescription>
         </DialogHeader>
+        
         <div className="space-y-4 py-4">
+          {detectedPrices.length > 0 && (
+            <div className="space-y-2">
+              <Label className="text-primary">Detected Prices (Click to select)</Label>
+              <div className="flex flex-wrap gap-2">
+                {detectedPrices.map((p, i) => (
+                  <Button 
+                    key={i} 
+                    variant={priceSelector === p.key ? "default" : "outline"} 
+                    size="sm" 
+                    className="text-xs h-auto py-1 px-2 flex flex-col items-start"
+                    onClick={() => selectPrice(p)}
+                  >
+                    <span className="font-bold">{p.value}</span>
+                    <span className="text-[8px] opacity-70">{p.key}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label>Custom Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Product Name" />
           </div>
-          <div className="space-y-2">
-            <Label>Price Selector (CSS or XPath)</Label>
-            <Input value={priceSelector} onChange={(e) => setPriceSelector(e.target.value)} placeholder=".price or //span[@class='price']" />
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Price Key/Selector</Label>
+              <Input value={priceSelector} onChange={(e) => setPriceSelector(e.target.value)} placeholder="e.g. price" />
+            </div>
+            <div className="space-y-2">
+              <Label>Current Price</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">{priceCurrency}</span>
+                <Input 
+                  type="number" 
+                  className="pl-7"
+                  value={priceCurrent} 
+                  onChange={(e) => setPriceCurrent(parseFloat(e.target.value) || 0)} 
+                />
+              </div>
+            </div>
           </div>
+
           <div className="space-y-2">
             <Label>Alert Threshold ({threshold}%)</Label>
             <Slider value={[threshold]} onValueChange={(v) => setThreshold(v[0])} max={50} step={1} />
             <p className="text-[10px] text-muted-foreground">Notify if price drops more than {threshold}%</p>
           </div>
+          
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Frequency</Label>
@@ -567,6 +658,7 @@ const Dashboard = () => {
         onClose={() => setIsFavModalOpen(false)} 
         initialUrl={url}
         initialTitle={result?.result?.title || result?.result?.name}
+        extractedData={result?.result}
       />
 
       <FullResultModal 
@@ -630,13 +722,66 @@ const Favorites = () => {
   const handleCheckNow = async (id: string) => {
     setIsChecking(id);
     try {
-      // In a real app, this would call a backend function that performs the scrape
-      // For now, we'll simulate it or just refresh the list
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      toast.success("Check completed!");
+      const item = items.find(i => i.id === id);
+      if (!item) return;
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session");
+
+      // Perform a fresh scrape
+      const response = await fetch("/api/scrape", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ 
+          url: item.url, 
+          method: "fetch-light", 
+          instruction: `Extract the current price from this page. Look for the value associated with '${item.price_selector || 'price'}'.` 
+        }),
+      });
+
+      const data = await response.json() as any;
+      if (!data.success) throw new Error(data.error);
+
+      // Try to find the new price in the result
+      let newPrice = item.price_current;
+      const resultData = data.result;
+      
+      if (item.price_selector && resultData[item.price_selector]) {
+        const rawVal = String(resultData[item.price_selector]);
+        newPrice = parseFloat(rawVal.replace(/[^\d.,]/g, '').replace(',', '.')) || newPrice;
+      } else {
+        // Fallback: search for any price-like value
+        const keys = Object.keys(resultData);
+        const priceKey = keys.find(k => /price|cost|valor/i.test(k));
+        if (priceKey) {
+          const rawVal = String(resultData[priceKey]);
+          newPrice = parseFloat(rawVal.replace(/[^\d.,]/g, '').replace(',', '.')) || newPrice;
+        }
+      }
+
+      // Update database
+      const status = newPrice < item.price_current ? "down" : (newPrice > item.price_current ? "up" : "stable");
+      
+      const { error } = await supabase
+        .from("monitored_items")
+        .update({ 
+          price_previous: item.price_current,
+          price_current: newPrice,
+          status,
+          last_checked: new Date().toISOString()
+        })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      toast.success(`Check completed! New price: ${newPrice}`);
       fetchItems();
-    } catch (error) {
-      toast.error("Check failed");
+    } catch (error: any) {
+      console.error("Check Now Error:", error);
+      toast.error("Check failed: " + error.message);
     } finally {
       setIsChecking(null);
     }
