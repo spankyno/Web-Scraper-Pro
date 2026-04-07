@@ -23,13 +23,25 @@ export default {
 
   // Also allow manual trigger via HTTP for testing
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.pathname === "/run-cron") {
-      const result = await runPriceCheck(env);
-      return new Response(JSON.stringify(result), {
+    try {
+      const url = new URL(request.url);
+      if (url.pathname === "/run-cron") {
+        const result = await runPriceCheck(env);
+        return new Response(JSON.stringify(result), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("Not Found", { status: 404 });
+    } catch (error: any) {
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: error.message,
+        stack: error.stack,
+        tip: "Check if all environment variables (VITE_SUPABASE_URL, etc.) are set in Cloudflare Dashboard"
+      }), {
+        status: 500,
         headers: { "Content-Type": "application/json" },
       });
     }
-    return new Response("Not Found", { status: 404 });
   },
 };
