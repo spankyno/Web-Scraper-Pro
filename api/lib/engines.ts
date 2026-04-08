@@ -1,21 +1,48 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { GoogleGenAI, Type } from "@google/genai";
-import { DOMParser } from "xmldom";
+import { JSDOM } from "jsdom";
 import xpath from "xpath";
 
 export const engines = {
   "fetch-light": async (url: string) => {
     const response = await axios.get(url, { 
       headers: { 
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
       },
       timeout: 15000
     });
     const $ = cheerio.load(response.data);
-    return { html: response.data, title: $("title").text() };
+    
+    // Attempt to find price automatically
+    let price = "";
+    const priceSelectors = [
+      '[class*="price"]', '[id*="price"]', '.current-price', '.amount', 
+      'meta[property="product:price:amount"]', 'meta[name="twitter:data1"]'
+    ];
+    
+    for (const selector of priceSelectors) {
+      const el = $(selector);
+      if (el.length > 0) {
+        if (selector.startsWith('meta')) {
+          price = el.attr('content') || "";
+        } else {
+          price = el.first().text().trim();
+        }
+        if (price) break;
+      }
+    }
+
+    return { 
+      html: response.data.substring(0, 1000), 
+      title: $("title").text(),
+      price: price || "Not found automatically",
+      url
+    };
   },
   "cheerio": async (url: string) => {
     const response = await axios.get(url, { 
@@ -68,22 +95,39 @@ export const engines = {
     
     const response = await axios.post(`https://chrome.browserless.io/content?token=${apiKey}`, {
       url,
+      gotoOptions: { waitUntil: "networkidle2", timeout: 30000 },
+      setExtraHTTPHeaders: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+      },
       elements: [
         { selector: "title" },
         { selector: "h1" },
         { selector: ".price" },
-        { selector: "#price" }
+        { selector: "#price" },
+        { selector: '[class*="price"]' }
       ]
     });
     return response.data;
   },
   "importxml": async (url: string, query: string) => {
-    const response = await axios.get(url);
-    const doc = new DOMParser().parseFromString(response.data);
-    const nodes = xpath.select(query, doc);
-    if (Array.isArray(nodes)) {
-      return nodes.map((n: any) => n.toString());
+    const response = await axios.get(url, {
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      }
+    });
+    const dom = new JSDOM(response.data);
+    const doc = dom.window.document;
+    
+    // xpath in jsdom is a bit different, we use the built-in evaluate
+    const result = doc.evaluate(query, doc, null, dom.window.XPathResult.ANY_TYPE, null);
+    const nodes = [];
+    let node = result.iterateNext();
+    while (node) {
+      nodes.push(node.textContent || node.toString());
+      node = result.iterateNext();
     }
-    return [nodes.toString()];
+    
+    return nodes.length > 0 ? nodes : ["No results found"];
   }
 };
