@@ -172,9 +172,14 @@ async function startServer() {
     }
   });
 
-  app.post("/api/monitor/check/:id", expressAuthMiddleware, async (req: AuthRequest, res) => {
-    const { id } = req.params;
-    console.log(`Manual check requested for item: ${id}`);
+  app.post("/api/check-now", expressAuthMiddleware, async (req: AuthRequest, res) => {
+    const { id } = req.body;
+    console.log(`[API] Manual check requested for item ID: ${id}`);
+    
+    if (!id) {
+      return res.status(400).json({ success: false, error: "Item ID is required in request body" });
+    }
+
     try {
       // 1. Get item
       const { data: item, error: fetchError } = await supabase
@@ -184,8 +189,11 @@ async function startServer() {
         .single();
 
       if (fetchError || !item) {
+        console.error(`[API] Item not found: ${id}`);
         return res.status(404).json({ success: false, error: "Item not found in database" });
       }
+
+      console.log(`[API] Scraping URL: ${item.url}`);
 
       // 2. Scrape
       const response = await axios.get(item.url, { 
@@ -194,11 +202,13 @@ async function startServer() {
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Referer': 'https://www.google.com/'
         },
-        timeout: 25000
+        timeout: 30000
       });
       
       const smartPrice = await extractPriceSmart(response.data, item.url);
       const currentPrice = smartPrice.price || 0;
+
+      console.log(`[API] Price extracted: ${currentPrice} (${smartPrice.method})`);
 
       // 3. Detect changes
       let status = "stable";
@@ -215,6 +225,7 @@ async function startServer() {
       // 4. Notify
       const shouldNotify = (isPriceDrop && dropPct >= threshold) || (currentPrice > 0 && alertPrice > 0 && currentPrice <= alertPrice);
       if (shouldNotify) {
+        console.log(`[API] Sending alert for ${item.title}`);
         await sendPriceAlert(item, currentPrice, dropPct);
       }
 
@@ -236,10 +247,11 @@ async function startServer() {
 
       if (updateError) throw updateError;
 
+      console.log(`[API] Check completed successfully for ${id}`);
       res.json({ success: true, price: currentPrice, notified: shouldNotify });
     } catch (error: any) {
-      console.error(`Check Item Error [${id}]:`, error.message);
-      res.status(500).json({ success: false, error: error.message || "Unknown server error" });
+      console.error(`[API] Check Item Error [${id}]:`, error.message);
+      res.status(500).json({ success: false, error: error.message || "Internal server error during check" });
     }
   });
 
