@@ -77,7 +77,9 @@ export async function runPriceCheck(env: any) {
       const alertPrice = item.alert_price || 0;
 
       // 4. Notify
-      // Notify if drop % >= threshold OR currentPrice <= alertPrice
+      // Notify if:
+      // 1. There is a price drop AND it's >= threshold %
+      // 2. OR current price is <= alert price (even if it didn't change in this check)
       const shouldNotify = (isPriceDrop && dropPct >= threshold) || (currentPrice > 0 && alertPrice > 0 && currentPrice <= alertPrice);
 
       if (shouldNotify && telegramToken) {
