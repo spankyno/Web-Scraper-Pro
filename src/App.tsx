@@ -205,7 +205,7 @@ const FullResultModal = ({ isOpen, onClose, result }: { isOpen: boolean, onClose
   );
 };
 
-const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extractedData, initialMethod }: { isOpen: boolean, onClose: () => void, initialUrl: string, initialTitle?: string, extractedData?: any, initialMethod?: string }) => {
+const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extractedData, initialMethod }: { isOpen: boolean, onClose: () => void, initialUrl: string, initialTitle?: string, extractedData?: any, initialMethod?: string }) => {
   const [name, setName] = useState(initialTitle || "");
   const [priceSelector, setPriceSelector] = useState("");
   const [priceCurrent, setPriceCurrent] = useState<number>(0);
@@ -218,12 +218,24 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
   const [method, setMethod] = useState(initialMethod || "fetch-light");
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    if (priceCurrent > 0) {
-      const calculated = priceCurrent * (1 - threshold / 100);
-      setAlertPrice(Number(calculated.toFixed(2)));
+  // Helper to find potential images
+  const findImage = (data: any): string | null => {
+    if (!data || typeof data !== 'object') return null;
+    const candidates = ['image', 'thumbnail', 'og:image', 'twitter:image', 'product_image', 'img'];
+    for (const c of candidates) {
+      if (data[c] && typeof data[c] === 'string') return data[c];
     }
-  }, [priceCurrent, threshold]);
+    // Deep search
+    for (const v of Object.values(data)) {
+      if (typeof v === 'object' && v !== null) {
+        const res = findImage(v);
+        if (res) return res;
+      }
+    }
+    return null;
+  };
+
+  const productImage = findImage(extractedData);
 
   const handleThresholdChange = (val: number) => {
     setThreshold(val);
@@ -237,7 +249,7 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
     setAlertPrice(val);
     if (priceCurrent > 0) {
       const calculatedThreshold = ((priceCurrent - val) / priceCurrent) * 100;
-      setThreshold(Math.max(0, Math.min(100, Number(calculatedThreshold.toFixed(1)))));
+      setThreshold(Number(calculatedThreshold.toFixed(1)));
     }
   };
 
@@ -305,6 +317,7 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
         price_selector: priceSelector,
         custom_selectors: customSelectors,
         threshold,
+        alert_price: alertPrice,
         check_interval: interval,
         notification_channel: channel,
         is_active: true,
@@ -315,18 +328,21 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
         next_check: new Date().toISOString(),
         method,
         price_confidence: extractedData?.confidence || extractedData?.result?.confidence || null,
-        price_extraction_method: extractedData?.method || extractedData?.result?.method || null
+        price_extraction_method: extractedData?.method || extractedData?.result?.method || null,
+        image_url: productImage
       };
 
       let { error } = await supabase.from("monitored_items").insert(payload);
 
       // Fallback if columns are missing in Supabase
-      if (error && (error.message.includes("price_confidence") || error.code === "PGRST204")) {
+      if (error && (error.message.includes("price_confidence") || error.message.includes("alert_price") || error.code === "PGRST204")) {
         console.warn("New columns missing in Supabase, retrying with basic schema...");
         const basicPayload = { ...payload };
         delete basicPayload.price_confidence;
         delete basicPayload.price_extraction_method;
         delete basicPayload.last_error;
+        delete basicPayload.alert_price;
+        delete basicPayload.image_url;
         const retry = await supabase.from("monitored_items").insert(basicPayload);
         error = retry.error;
       }
@@ -345,13 +361,24 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add to Favorites</DialogTitle>
+          <DialogTitle>Add to Monitoring</DialogTitle>
           <DialogDescription>
             Configure monitoring for this URL.
           </DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4 py-4">
+          {productImage && (
+            <div className="flex justify-center mb-4">
+              <img 
+                src={productImage} 
+                alt="Product" 
+                className="h-32 w-32 object-contain rounded-lg border bg-white p-2"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          )}
+
           {detectedPrices.length > 0 && (
             <div className="space-y-2">
               <Label className="text-primary">Detected Prices (Click to select)</Label>
@@ -403,13 +430,15 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Alert Threshold ({threshold}%)</Label>
-              <Slider 
-                value={[threshold]} 
-                onValueChange={(v) => handleThresholdChange(v[0])} 
-                max={100} 
-                step={0.1} 
-              />
+              <Label>Discount Percentage %</Label>
+              <div className="relative">
+                <Input 
+                  type="number" 
+                  value={threshold} 
+                  onChange={(e) => handleThresholdChange(parseFloat(e.target.value) || 0)} 
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span>
+              </div>
               <p className="text-[10px] text-muted-foreground">Notify if price drops more than {threshold}%</p>
             </div>
             <div className="space-y-2">
@@ -841,7 +870,7 @@ const Dashboard = () => {
         </motion.div>
       )}
 
-      <AddFavoriteModal 
+      <AddMonitoringModal 
         isOpen={isFavModalOpen} 
         onClose={() => setIsFavModalOpen(false)} 
         initialUrl={url}
@@ -859,10 +888,92 @@ const Dashboard = () => {
   );
 };
 
+const EditItemModal = ({ isOpen, onClose, item, onUpdate }: { isOpen: boolean, onClose: () => void, item: any, onUpdate: () => void }) => {
+  const [alertPrice, setAlertPrice] = useState<number>(item?.alert_price || 0);
+  const [interval, setInterval] = useState(item?.check_interval || "1h");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (item) {
+      setAlertPrice(item.alert_price || 0);
+      setInterval(item.check_interval || "1h");
+    }
+  }, [item]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const threshold = item.price_current > 0 ? ((item.price_current - alertPrice) / item.price_current) * 100 : 0;
+      
+      const { error } = await supabase
+        .from("monitored_items")
+        .update({
+          alert_price: alertPrice,
+          threshold: Number(threshold.toFixed(1)),
+          check_interval: interval
+        })
+        .eq("id", item.id);
+
+      if (error) throw error;
+      toast.success("Item updated successfully");
+      onUpdate();
+      onClose();
+    } catch (error: any) {
+      toast.error("Failed to update: " + error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edit Monitoring</DialogTitle>
+          <DialogDescription>Update alert settings for {item?.title}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Alert Price ({item?.price_currency || "€"})</Label>
+            <Input 
+              type="number" 
+              value={alertPrice} 
+              onChange={(e) => setAlertPrice(parseFloat(e.target.value) || 0)} 
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Check Interval</Label>
+            <Select value={interval} onValueChange={setInterval}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="15m">15 mins</SelectItem>
+                <SelectItem value="1h">1 hour</SelectItem>
+                <SelectItem value="6h">6 hours</SelectItem>
+                <SelectItem value="1d">1 day</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving && <Loader2 className="animate-spin mr-2" size={16} />}
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 const Favorites = () => {
-  const [items, setItems] = useState<MonitoredItem[]>([]);
+  const [items, setItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isChecking, setIsChecking] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<any | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   const fetchItems = async () => {
     const { data, error } = await supabase
@@ -1031,6 +1142,17 @@ const Favorites = () => {
                       <Button 
                         variant="ghost" 
                         size="icon" 
+                        className="h-8 w-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          setEditingItem(item);
+                          setIsEditModalOpen(true);
+                        }}
+                      >
+                        <Edit2 size={14} />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
                         className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={() => handleDelete(item.id)}
                       >
@@ -1077,6 +1199,12 @@ const Favorites = () => {
                       </div>
                     </div>
                     <div className="text-right">
+                      {item.alert_price > 0 && (
+                        <div className="mb-2">
+                          <p className="text-[10px] text-primary font-bold uppercase">ALERT AT</p>
+                          <p className="text-sm font-bold text-primary">{item.price_currency || "€"}{item.alert_price}</p>
+                        </div>
+                      )}
                       <p className="text-[10px] text-muted-foreground font-medium uppercase">PREVIOUS</p>
                       <p className="text-sm line-through text-muted-foreground">{item.price_currency || "€"}{item.price_previous}</p>
                     </div>
@@ -1127,6 +1255,13 @@ const Favorites = () => {
           </div>
         )}
       </div>
+
+      <EditItemModal 
+        isOpen={isEditModalOpen} 
+        onClose={() => setIsEditModalOpen(false)} 
+        item={editingItem} 
+        onUpdate={fetchItems} 
+      />
     </div>
   );
 };
