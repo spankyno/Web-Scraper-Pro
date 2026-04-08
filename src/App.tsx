@@ -298,7 +298,7 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("User not found");
 
-      const { error } = await supabase.from("monitored_items").insert({
+      const payload: any = {
         user_id: user.id,
         url: initialUrl,
         title: name,
@@ -316,7 +316,20 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
         method,
         price_confidence: extractedData?.confidence || extractedData?.result?.confidence || null,
         price_extraction_method: extractedData?.method || extractedData?.result?.method || null
-      });
+      };
+
+      let { error } = await supabase.from("monitored_items").insert(payload);
+
+      // Fallback if columns are missing in Supabase
+      if (error && (error.message.includes("price_confidence") || error.code === "PGRST204")) {
+        console.warn("New columns missing in Supabase, retrying with basic schema...");
+        const basicPayload = { ...payload };
+        delete basicPayload.price_confidence;
+        delete basicPayload.price_extraction_method;
+        delete basicPayload.last_error;
+        const retry = await supabase.from("monitored_items").insert(basicPayload);
+        error = retry.error;
+      }
 
       if (error) throw error;
       toast.success("Item added to monitoring!");
@@ -1125,20 +1138,37 @@ const HistoryPage = () => {
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const fetchJobs = async () => {
+    setIsLoading(true);
+    const { data, error } = await supabase
+      .from("scrape_jobs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    
+    if (error) toast.error("Failed to fetch history");
+    else setJobs(data || []);
+    setIsLoading(false);
+  };
+
   useEffect(() => {
-    const fetchJobs = async () => {
-      const { data, error } = await supabase
-        .from("scrape_jobs")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(50);
-      
-      if (error) toast.error("Failed to fetch history");
-      else setJobs(data || []);
-      setIsLoading(false);
-    };
     fetchJobs();
   }, []);
+
+  const handleDeleteJob = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("scrape_jobs")
+        .delete()
+        .eq("id", id);
+      
+      if (error) throw error;
+      toast.success("Job deleted from history");
+      setJobs(jobs.filter(j => j.id !== id));
+    } catch (error: any) {
+      toast.error("Failed to delete: " + error.message);
+    }
+  };
 
   const handleReSearch = (job: any) => {
     navigate("/", { 
@@ -1215,6 +1245,15 @@ const HistoryPage = () => {
                         setIsModalOpen(true);
                       }}>
                         <Eye size={14} />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeleteJob(job.id)}
+                        title="Eliminar"
+                      >
+                        <Trash2 size={14} />
                       </Button>
                     </div>
                   </TableCell>
