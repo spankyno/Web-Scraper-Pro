@@ -1,7 +1,7 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { GoogleGenAI, Type } from "@google/genai";
-import { JSDOM } from "jsdom";
+import { DOMParser } from "xmldom";
 import xpath from "xpath";
 
 export const engines = {
@@ -116,18 +116,22 @@ export const engines = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       }
     });
-    const dom = new JSDOM(response.data);
-    const doc = dom.window.document;
     
-    // xpath in jsdom is a bit different, we use the built-in evaluate
-    const result = doc.evaluate(query, doc, null, dom.window.XPathResult.ANY_TYPE, null);
-    const nodes = [];
-    let node = result.iterateNext();
-    while (node) {
-      nodes.push(node.textContent || node.toString());
-      node = result.iterateNext();
+    // Use a more forgiving parser setup
+    const parser = new DOMParser({
+      errorHandler: {
+        warning: () => {},
+        error: () => {},
+        fatalError: (msg) => { console.warn("DOMParser Fatal Error:", msg); }
+      }
+    });
+    
+    const doc = parser.parseFromString(response.data, "text/html");
+    const nodes = xpath.select(query, doc);
+    
+    if (Array.isArray(nodes)) {
+      return nodes.map((n: any) => n.toString());
     }
-    
-    return nodes.length > 0 ? nodes : ["No results found"];
+    return [nodes.toString()];
   }
 };
