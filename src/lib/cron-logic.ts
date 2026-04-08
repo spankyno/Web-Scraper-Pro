@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import axios from "axios";
-import * as cheerio from "cheerio";
+import { extractPriceSmart } from "../../api/lib/price-extractor";
+import { engines } from "../../api/lib/engines";
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function runPriceCheck(env: any) {
   const supabase = createClient(env.VITE_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_ANON_KEY);
@@ -23,29 +26,50 @@ export async function runPriceCheck(env: any) {
 
   for (const item of items) {
     try {
-      // 2. Scrape (using a simple fetch-light logic)
+      // Rate limiting: 3 seconds between requests
+      await delay(3000);
+
+      console.log(`Checking price for: ${item.title} (${item.url})`);
+      
+      // 2. Scrape using fetch-light + extractPriceSmart
       const response = await axios.get(item.url, { 
         headers: { 
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Referer': 'https://www.google.com/'
         },
-        timeout: 15000
+        timeout: 20000
       });
       
-      const $ = cheerio.load(response.data);
-      let currentPrice = 0;
+      let smartPrice = await extractPriceSmart(response.data, item.url);
       
-      if (item.price_selector) {
-        const priceText = $(item.price_selector).text().trim();
-        currentPrice = parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.'));
+      // Fallback to Gemini if confidence is low
+      if (!smartPrice.price || smartPrice.confidence < 60) {
+        console.log(`Low confidence (${smartPrice.confidence}%). Falling back to Gemini...`);
+        try {
+          const geminiResult = await (engines as any)["gemini-ai"](item.url, "Extract current price");
+          if (geminiResult && geminiResult.price) {
+            smartPrice = {
+              price: typeof geminiResult.price === 'string' ? parseFloat(geminiResult.price.replace(/[^\d.]/g, '')) : geminiResult.price,
+              currency: geminiResult.currency || "EUR",
+              confidence: geminiResult.confidence || 80,
+              method: "gemini-ai-fallback"
+            };
+          }
+        } catch (e) {
+          console.error("Gemini fallback failed in cron:", e);
+        }
       }
 
-      if (isNaN(currentPrice)) currentPrice = 0;
-
+      const currentPrice = smartPrice.price || 0;
+      
       // 3. Detect changes
       let status = "stable";
-      if (currentPrice < item.price_current) status = "down";
-      else if (currentPrice > item.price_current) status = "up";
-      if (currentPrice === 0) status = "out_of_stock";
+      if (currentPrice > 0 && item.price_current > 0) {
+        if (currentPrice < item.price_current) status = "down";
+        else if (currentPrice > item.price_current) status = "up";
+      }
+      if (currentPrice === 0 && response.status === 200) status = "out_of_stock";
 
       const isPriceDrop = currentPrice > 0 && item.price_current > 0 && currentPrice < item.price_current;
       const dropPct = isPriceDrop ? ((item.price_current - currentPrice) / item.price_current) * 100 : 0;
@@ -84,13 +108,26 @@ export async function runPriceCheck(env: any) {
           price_current: currentPrice,
           status: status,
           last_checked: now,
-          next_check: nextCheckDate.toISOString()
+          next_check: nextCheckDate.toISOString(),
+          price_confidence: smartPrice.confidence,
+          price_extraction_method: smartPrice.method,
+          last_error: null
         })
         .eq("id", item.id);
 
-      results.push({ id: item.id, status: "updated", change: isPriceDrop });
+      results.push({ id: item.id, status: "updated", change: isPriceDrop, price: currentPrice });
     } catch (itemErr: any) {
       console.error(`Error checking item ${item.id}:`, itemErr.message);
+      
+      // Update last_error in DB
+      await supabase
+        .from("monitored_items")
+        .update({ 
+          last_error: itemErr.message,
+          last_checked: now 
+        })
+        .eq("id", item.id);
+
       results.push({ id: item.id, status: "error", error: itemErr.message });
     }
   }

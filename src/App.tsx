@@ -313,7 +313,9 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
         status: "stable",
         last_checked: new Date().toISOString(),
         next_check: new Date().toISOString(),
-        method
+        method,
+        price_confidence: extractedData?.confidence || extractedData?.result?.confidence || null,
+        price_extraction_method: extractedData?.method || extractedData?.result?.method || null
       });
 
       if (error) throw error;
@@ -360,6 +362,11 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
           <div className="space-y-2">
             <Label>Custom Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Product Name" />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Custom Selector / XPath (Optional)</Label>
+            <Input value={customSelectors} onChange={(e) => setCustomSelectors(e.target.value)} placeholder="e.g. .price or //span[@id='price']" />
           </div>
           
           <div className="grid grid-cols-2 gap-4">
@@ -452,7 +459,10 @@ const Dashboard = () => {
   const [url, setUrl] = useState("");
   const [method, setMethod] = useState("fetch-light");
   const [instruction, setInstruction] = useState("");
+  const [query, setQuery] = useState("");
+  const [smartMode, setSmartMode] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingXPath, setIsGeneratingXPath] = useState(false);
   const [result, setResult] = useState<ScrapeResult | null>(null);
   const [isFavModalOpen, setIsFavModalOpen] = useState(false);
   const [isFullResultOpen, setIsFullResultOpen] = useState(false);
@@ -491,7 +501,13 @@ const Dashboard = () => {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({ url: targetUrl, method, instruction }),
+        body: JSON.stringify({ 
+          url: targetUrl, 
+          method: smartMode && (method === "fetch-light" || method === "cheerio") ? "fetch-light" : method, 
+          instruction,
+          query,
+          smartMode
+        }),
       });
 
       let data;
@@ -535,6 +551,37 @@ const Dashboard = () => {
       a.remove();
     } catch (error) {
       toast.error("Export failed");
+    }
+  };
+
+  const handleGenerateXPath = async () => {
+    if (!url) return toast.error("Please enter a URL first");
+    setIsGeneratingXPath(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch("/api/scrape", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ 
+          url, 
+          method: "gemini-ai", 
+          instruction: "Analiza el HTML y devuelve ÚNICAMENTE el XPath necesario para extraer el precio del producto. Ejemplo: //span[@id='price']. No añadas nada más." 
+        }),
+      });
+      const data = await response.json() as any;
+      if (data.success) {
+        // Gemini might return an object or string
+        const xpathResult = typeof data.result === 'string' ? data.result : (data.result.xpath || data.result.value || JSON.stringify(data.result));
+        setQuery(xpathResult.replace(/```xpath|```/g, '').trim());
+        toast.success("XPath generated!");
+      }
+    } catch (e) {
+      toast.error("Failed to generate XPath");
+    } finally {
+      setIsGeneratingXPath(false);
     }
   };
 
@@ -608,6 +655,16 @@ const Dashboard = () => {
                 </SelectContent>
               </Select>
             </div>
+            <div className="md:col-span-4 flex items-center space-x-2 pt-8">
+              <Switch 
+                id="smart-mode" 
+                checked={smartMode} 
+                onCheckedChange={setSmartMode} 
+              />
+              <Label htmlFor="smart-mode" className="cursor-pointer">
+                Modo inteligente <span className="text-[10px] text-primary font-bold">(RECOMENDADO)</span>
+              </Label>
+            </div>
           </div>
 
           <AnimatePresence>
@@ -625,6 +682,35 @@ const Dashboard = () => {
                   value={instruction}
                   onChange={(e) => setInstruction(e.target.value)}
                   className="h-12"
+                />
+              </motion.div>
+            )}
+            {method === "importxml" && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="space-y-2 overflow-hidden"
+              >
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="query">XPath Query</Label>
+                  <Button 
+                    variant="link" 
+                    size="sm" 
+                    className="h-auto p-0 text-xs gap-1"
+                    onClick={handleGenerateXPath}
+                    disabled={isGeneratingXPath}
+                  >
+                    {isGeneratingXPath ? <Loader2 className="animate-spin" size={12} /> : <Bot size={12} />}
+                    Generar XPath automático
+                  </Button>
+                </div>
+                <Input 
+                  id="query"
+                  placeholder="//span[@class='price']" 
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="h-12 font-mono text-sm"
                 />
               </motion.div>
             )}
@@ -693,14 +779,40 @@ const Dashboard = () => {
                 </TableHeader>
                 <TableBody>
                   {result.success ? (
-                    Object.entries(result.result).map(([key, value]: [string, any]) => (
-                      <TableRow key={key} className="cursor-pointer hover:bg-muted/50" onClick={() => setIsFullResultOpen(true)}>
-                        <TableCell className="font-medium text-primary">{key}</TableCell>
-                        <TableCell className="max-w-md truncate">
-                          {typeof value === "object" ? JSON.stringify(value) : String(value)}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    <>
+                      {result.result.confidence && (
+                        <TableRow className="bg-primary/5">
+                          <TableCell className="font-medium text-primary">Extraction Confidence</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className="w-full bg-muted rounded-full h-2 max-w-[100px]">
+                                <div 
+                                  className={`h-2 rounded-full ${result.result.confidence > 80 ? 'bg-green-500' : result.result.confidence > 50 ? 'bg-yellow-500' : 'bg-red-500'}`} 
+                                  style={{ width: `${result.result.confidence}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-bold">{result.result.confidence}%</span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {result.result.method && (
+                        <TableRow className="bg-primary/5">
+                          <TableCell className="font-medium text-primary">Extraction Method</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="capitalize">{result.result.method}</Badge>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {Object.entries(result.result).filter(([k]) => k !== 'confidence' && k !== 'method').map(([key, value]: [string, any]) => (
+                        <TableRow key={key} className="cursor-pointer hover:bg-muted/50" onClick={() => setIsFullResultOpen(true)}>
+                          <TableCell className="font-medium text-primary">{key}</TableCell>
+                          <TableCell className="max-w-md truncate">
+                            {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </>
                   ) : (
                     <TableRow>
                       <TableCell colSpan={2} className="text-center py-12 text-destructive">
@@ -919,7 +1031,23 @@ const Favorites = () => {
                       {getEngineIcon(item.method || "fetch-light")}
                       {item.method || "fetch-light"}
                     </Badge>
+                    {item.price_extraction_method && (
+                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 font-normal">
+                        {item.price_extraction_method}
+                      </Badge>
+                    )}
+                    {item.price_confidence && (
+                      <span className={`text-[10px] font-bold ${item.price_confidence > 80 ? 'text-green-500' : 'text-yellow-500'}`}>
+                        {item.price_confidence}%
+                      </span>
+                    )}
                   </div>
+                  {item.last_error && (
+                    <div className="mt-2 p-1.5 bg-destructive/10 border border-destructive/20 rounded text-[10px] text-destructive flex items-start gap-1">
+                      <AlertCircle size={12} className="shrink-0 mt-0.5" />
+                      <span className="line-clamp-2">{item.last_error}</span>
+                    </div>
+                  )}
                   <CardDescription className="truncate text-xs flex items-center gap-1 mt-2">
                     <Globe size={10} /> {item.url}
                   </CardDescription>
