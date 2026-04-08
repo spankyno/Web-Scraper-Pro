@@ -96,7 +96,7 @@ const Sidebar = ({ user, onLogout }: { user: any, onLogout: () => void }) => {
   const location = useLocation();
   const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-    { icon: Star, label: "En seguimiento", path: "/favorites" },
+    { icon: Star, label: "Monitoring", path: "/favorites" },
     { icon: History, label: "History", path: "/history" },
     { icon: Settings, label: "Settings", path: "/settings" },
   ];
@@ -318,7 +318,7 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
       });
 
       if (error) throw error;
-      toast.success("Item añadido a seguimiento!");
+      toast.success("Item added to monitoring!");
       onClose();
     } catch (error: any) {
       toast.error("Failed to add item: " + error.message);
@@ -868,7 +868,7 @@ const Favorites = () => {
     <div className="p-8 space-y-8 max-w-6xl mx-auto">
       <header className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">En seguimiento</h2>
+          <h2 className="text-3xl font-bold tracking-tight">Monitoring</h2>
           <p className="text-muted-foreground">Real-time price tracking and alerts.</p>
         </div>
         <Button className="gap-2" onClick={() => window.location.href = "/"}>
