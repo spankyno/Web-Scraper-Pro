@@ -987,13 +987,17 @@ const Favorites = () => {
   const handleCheckNow = async (id: string) => {
     setIsChecking(id);
     try {
+      // Small delay to ensure server is ready if it just restarted
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("No session");
+      if (!session) throw new Error("No session found. Please log in again.");
 
       const response = await fetch(`/api/monitor/check/${encodeURIComponent(id)}?t=${Date.now()}`, {
         method: "POST",
         headers: { 
-          "Authorization": `Bearer ${session.access_token}`
+          "Authorization": `Bearer ${session.access_token}`,
+          "Accept": "application/json"
         }
       });
 
@@ -1002,11 +1006,12 @@ const Favorites = () => {
       try {
         data = JSON.parse(text) as { success: boolean, price?: number, error?: string };
       } catch (e) {
-        console.error("Failed to parse JSON response:", text);
-        throw new Error(`Server returned non-JSON response: ${text.substring(0, 100)}`);
+        console.error("Non-JSON response received:", text);
+        const snippet = text.substring(0, 150).replace(/<[^>]*>/g, '').trim();
+        throw new Error(`Server returned non-JSON response. Status: ${response.status} ${response.statusText}. Content: ${snippet || '(empty)'}`);
       }
 
-      if (!data.success) throw new Error(data.error);
+      if (!data.success) throw new Error(data.error || "Unknown server-side error");
 
       toast.success(`Check completed! New price: ${data.price}`);
       fetchItems();
