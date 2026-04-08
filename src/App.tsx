@@ -205,7 +205,7 @@ const FullResultModal = ({ isOpen, onClose, result }: { isOpen: boolean, onClose
   );
 };
 
-const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extractedData, initialMethod }: { isOpen: boolean, onClose: () => void, initialUrl: string, initialTitle?: string, extractedData?: any, initialMethod?: string }) => {
+const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extractedData, initialMethod, editItem, onUpdate }: { isOpen: boolean, onClose: () => void, initialUrl: string, initialTitle?: string, extractedData?: any, initialMethod?: string, editItem?: any, onUpdate?: () => void }) => {
   const [name, setName] = useState(initialTitle || "");
   const [priceSelector, setPriceSelector] = useState("");
   const [priceCurrent, setPriceCurrent] = useState<number>(0);
@@ -217,6 +217,24 @@ const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extract
   const [channel, setChannel] = useState<"telegram" | "email" | "both">("telegram");
   const [method, setMethod] = useState(initialMethod || "fetch-light");
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (editItem) {
+      setName(editItem.title || "");
+      setPriceSelector(editItem.price_selector || "");
+      setPriceCurrent(editItem.price_current || 0);
+      setPriceCurrency(editItem.price_currency || "€");
+      setCustomSelectors(editItem.custom_selectors || "");
+      setThreshold(editItem.threshold || 0);
+      setAlertPrice(editItem.alert_price || 0);
+      setInterval(editItem.check_interval || "1h");
+      setChannel(editItem.notification_channel || "telegram");
+      setMethod(editItem.method || "fetch-light");
+    } else {
+      setName(initialTitle || "");
+      setMethod(initialMethod || "fetch-light");
+    }
+  }, [editItem, initialTitle, initialMethod, isOpen]);
 
   // Helper to find potential images
   const findImage = (data: any): string | null => {
@@ -235,15 +253,7 @@ const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extract
     return null;
   };
 
-  const productImage = findImage(extractedData);
-
-  const handleThresholdChange = (val: number) => {
-    setThreshold(val);
-    if (priceCurrent > 0) {
-      const calculated = priceCurrent * (1 - val / 100);
-      setAlertPrice(Number(calculated.toFixed(2)));
-    }
-  };
+  const productImage = editItem?.image_url || findImage(extractedData);
 
   const handleAlertPriceChange = (val: number) => {
     setAlertPrice(val);
@@ -322,17 +332,24 @@ const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extract
         notification_channel: channel,
         is_active: true,
         price_current: priceCurrent,
-        price_previous: priceCurrent,
-        status: "stable",
-        last_checked: new Date().toISOString(),
-        next_check: new Date().toISOString(),
+        price_previous: editItem ? editItem.price_previous : priceCurrent,
+        status: editItem ? editItem.status : "stable",
+        last_checked: editItem ? editItem.last_checked : new Date().toISOString(),
+        next_check: editItem ? editItem.next_check : new Date().toISOString(),
         method,
-        price_confidence: extractedData?.confidence || extractedData?.result?.confidence || null,
-        price_extraction_method: extractedData?.method || extractedData?.result?.method || null,
+        price_confidence: extractedData?.confidence || extractedData?.result?.confidence || editItem?.price_confidence || null,
+        price_extraction_method: extractedData?.method || extractedData?.result?.method || editItem?.price_extraction_method || null,
         image_url: productImage
       };
 
-      let { error } = await supabase.from("monitored_items").insert(payload);
+      let error;
+      if (editItem) {
+        const { error: updateError } = await supabase.from("monitored_items").update(payload).eq("id", editItem.id);
+        error = updateError;
+      } else {
+        const { error: insertError } = await supabase.from("monitored_items").insert(payload);
+        error = insertError;
+      }
 
       // Fallback if columns are missing in Supabase
       if (error && (error.message.includes("price_confidence") || error.message.includes("alert_price") || error.code === "PGRST204")) {
@@ -343,15 +360,24 @@ const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extract
         delete basicPayload.last_error;
         delete basicPayload.alert_price;
         delete basicPayload.image_url;
-        const retry = await supabase.from("monitored_items").insert(basicPayload);
-        error = retry.error;
+        
+        let retryError;
+        if (editItem) {
+          const { error: retryUpdateError } = await supabase.from("monitored_items").update(basicPayload).eq("id", editItem.id);
+          retryError = retryUpdateError;
+        } else {
+          const { error: retryInsertError } = await supabase.from("monitored_items").insert(basicPayload);
+          retryError = retryInsertError;
+        }
+        error = retryError;
       }
 
       if (error) throw error;
-      toast.success("Item added to monitoring!");
+      toast.success(editItem ? "Item updated!" : "Item added to monitoring!");
+      if (onUpdate) onUpdate();
       onClose();
     } catch (error: any) {
-      toast.error("Failed to add item: " + error.message);
+      toast.error("Failed to save item: " + error.message);
     } finally {
       setIsSaving(false);
     }
@@ -435,11 +461,12 @@ const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extract
                 <Input 
                   type="number" 
                   value={threshold} 
-                  onChange={(e) => handleThresholdChange(parseFloat(e.target.value) || 0)} 
+                  readOnly
+                  className="bg-muted"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span>
               </div>
-              <p className="text-[10px] text-muted-foreground">Notify if price drops more than {threshold}%</p>
+              <p className="text-[10px] text-muted-foreground">Calculated based on alert price</p>
             </div>
             <div className="space-y-2">
               <Label>Alert Price</Label>
@@ -889,82 +916,14 @@ const Dashboard = () => {
 };
 
 const EditItemModal = ({ isOpen, onClose, item, onUpdate }: { isOpen: boolean, onClose: () => void, item: any, onUpdate: () => void }) => {
-  const [alertPrice, setAlertPrice] = useState<number>(item?.alert_price || 0);
-  const [interval, setInterval] = useState(item?.check_interval || "1h");
-  const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    if (item) {
-      setAlertPrice(item.alert_price || 0);
-      setInterval(item.check_interval || "1h");
-    }
-  }, [item]);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const threshold = item.price_current > 0 ? ((item.price_current - alertPrice) / item.price_current) * 100 : 0;
-      
-      const { error } = await supabase
-        .from("monitored_items")
-        .update({
-          alert_price: alertPrice,
-          threshold: Number(threshold.toFixed(1)),
-          check_interval: interval
-        })
-        .eq("id", item.id);
-
-      if (error) throw error;
-      toast.success("Item updated successfully");
-      onUpdate();
-      onClose();
-    } catch (error: any) {
-      toast.error("Failed to update: " + error.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Edit Monitoring</DialogTitle>
-          <DialogDescription>Update alert settings for {item?.title}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label>Alert Price ({item?.price_currency || "€"})</Label>
-            <Input 
-              type="number" 
-              value={alertPrice} 
-              onChange={(e) => setAlertPrice(parseFloat(e.target.value) || 0)} 
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Check Interval</Label>
-            <Select value={interval} onValueChange={setInterval}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="15m">15 mins</SelectItem>
-                <SelectItem value="1h">1 hour</SelectItem>
-                <SelectItem value="6h">6 hours</SelectItem>
-                <SelectItem value="1d">1 day</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving && <Loader2 className="animate-spin mr-2" size={16} />}
-            Save Changes
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <AddMonitoringModal 
+      isOpen={isOpen} 
+      onClose={onClose} 
+      initialUrl={item?.url || ""} 
+      editItem={item}
+      onUpdate={onUpdate}
+    />
   );
 };
 
