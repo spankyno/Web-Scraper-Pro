@@ -310,7 +310,6 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
         is_active: true,
         price_current: priceCurrent,
         price_previous: priceCurrent,
-        price_currency: priceCurrency,
         status: "stable",
         last_checked: new Date().toISOString(),
         next_check: new Date().toISOString(),
@@ -566,7 +565,14 @@ const Dashboard = () => {
               <Label htmlFor="method">Engine</Label>
               <Select value={method} onValueChange={setMethod}>
                 <SelectTrigger id="method" className="h-12">
-                  <SelectValue placeholder="Select method" />
+                  <div className="flex items-center gap-2">
+                    {method === "fetch-light" && <Zap size={16} className="text-yellow-500" />}
+                    {method === "cheerio" && <FileCode size={16} className="text-blue-500" />}
+                    {method === "gemini-ai" && <Bot size={16} className="text-purple-500" />}
+                    {method === "playwright" && <Play size={16} className="text-orange-500" />}
+                    {method === "importxml" && <Globe size={16} className="text-green-500" />}
+                    <SelectValue placeholder="Select method" />
+                  </div>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="fetch-light">
@@ -595,7 +601,7 @@ const Dashboard = () => {
                   </SelectItem>
                   <SelectItem value="importxml">
                     <div className="flex items-center gap-2">
-                      < Globe size={16} className="text-green-500" />
+                      <Globe size={16} className="text-green-500" />
                       <span>ImportXML (XPath)</span>
                     </div>
                   </SelectItem>
