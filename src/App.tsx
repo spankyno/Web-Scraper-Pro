@@ -92,6 +92,122 @@ interface MonitoredItem {
 
 // --- Components ---
 
+const Footer = () => {
+  return (
+    <footer className="border-t bg-muted/30 py-8 mt-auto">
+      <div className="max-w-6xl mx-auto px-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Zap size={20} className="text-primary" />
+              <span className="font-bold text-lg">WebScraper Pro</span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Autor: <span className="font-semibold text-foreground">Aitor Sánchez Gutiérrez</span>. 
+              <br />
+              © 2026 - Reservados todos los derechos
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-4 md:justify-end">
+            <a href="https://aitor-blog-contacto.vercel.app/" target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">
+              <User size={14} /> Contacto
+            </a>
+            <a href="https://aitorblog.infinityfreeapp.com" target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">
+              <Globe size={14} /> Blog
+            </a>
+            <a href="https://aitorhub.vercel.app/" target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">
+              <Plus size={14} /> Más apps
+            </a>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+const FeaturesSection = () => {
+  const features = [
+    {
+      title: "Extracción Inteligente",
+      description: "Motores múltiples (Playwright, Cheerio) con respaldo de IA Gemini para sitios complejos.",
+      icon: Bot,
+      color: "text-purple-500",
+      bg: "bg-purple-500/10"
+    },
+    {
+      title: "Monitorización Real-Time",
+      description: "Seguimiento automático mediante tareas programadas y chequeo manual instantáneo.",
+      icon: Clock,
+      color: "text-blue-500",
+      bg: "bg-blue-500/10"
+    },
+    {
+      title: "Alertas Inteligentes",
+      description: "Notificaciones inmediatas por Telegram con umbrales de precio personalizados.",
+      icon: Bell,
+      color: "text-yellow-500",
+      bg: "bg-yellow-500/10"
+    },
+    {
+      title: "Análisis y Exportación",
+      description: "Gráficos interactivos de evolución y descarga de datos en formatos JSON y CSV.",
+      icon: BarChart3,
+      color: "text-green-500",
+      bg: "bg-green-500/10"
+    },
+    {
+      title: "Seguridad Robusta",
+      description: "Autenticación segura y gestión de perfiles privados mediante Supabase.",
+      icon: CheckCircle2,
+      color: "text-primary",
+      bg: "bg-primary/10"
+    },
+    {
+      title: "Stack Tecnológico",
+      description: "Construido con React 18, Vite, Tailwind CSS y Vercel Serverless Functions.",
+      icon: Zap,
+      color: "text-orange-500",
+      bg: "bg-orange-500/10"
+    }
+  ];
+
+  return (
+    <div className="py-12 space-y-8">
+      <div className="text-center space-y-2">
+        <h3 className="text-2xl font-bold tracking-tight">Potencia tu Seguimiento</h3>
+        <p className="text-muted-foreground max-w-2xl mx-auto">
+          WebScraper Pro utiliza las últimas tecnologías para asegurar que nunca te pierdas una oferta.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {features.map((feature, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.1 }}
+            viewport={{ once: true }}
+          >
+            <Card className="h-full hover:shadow-lg transition-shadow border-none bg-card/50 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <div className={`w-10 h-10 ${feature.bg} rounded-lg flex items-center justify-center ${feature.color} mb-2`}>
+                  <feature.icon size={20} />
+                </div>
+                <CardTitle className="text-lg">{feature.title}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {feature.description}
+                </p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const Sidebar = ({ user, onLogout }: { user: any, onLogout: () => void }) => {
   const location = useLocation();
   const menuItems = [
@@ -917,6 +1033,9 @@ const Dashboard = () => {
         onClose={() => setIsFullResultOpen(false)} 
         result={result?.result}
       />
+
+      <Separator className="my-12" />
+      <FeaturesSection />
     </div>
   );
 };
@@ -1585,9 +1704,12 @@ const Layout = ({ children, user, onLogout }: { children: React.ReactNode, user:
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar user={user} onLogout={onLogout} />
-      <main className="flex-1 overflow-y-auto">
-        {children}
-      </main>
+      <div className="flex-1 flex flex-col min-h-screen">
+        <main className="flex-1 overflow-y-auto">
+          {children}
+        </main>
+        <Footer />
+      </div>
       <Toaster position="top-right" closeButton richColors />
     </div>
   );
