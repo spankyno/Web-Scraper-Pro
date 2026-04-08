@@ -163,8 +163,9 @@ async function startServer() {
     }
   });
 
-  app.post("/api/check-item/:id", expressAuthMiddleware, async (req: AuthRequest, res) => {
+  app.post("/api/monitor/check/:id", expressAuthMiddleware, async (req: AuthRequest, res) => {
     const { id } = req.params;
+    console.log(`Manual check requested for item: ${id}`);
     try {
       // 1. Get item
       const { data: item, error: fetchError } = await supabase
@@ -174,7 +175,7 @@ async function startServer() {
         .single();
 
       if (fetchError || !item) {
-        return res.status(404).json({ success: false, error: "Item not found" });
+        return res.status(404).json({ success: false, error: "Item not found in database" });
       }
 
       // 2. Scrape
@@ -184,7 +185,7 @@ async function startServer() {
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Referer': 'https://www.google.com/'
         },
-        timeout: 20000
+        timeout: 25000
       });
       
       const smartPrice = await extractPriceSmart(response.data, item.url);
@@ -229,7 +230,7 @@ async function startServer() {
       res.json({ success: true, price: currentPrice, notified: shouldNotify });
     } catch (error: any) {
       console.error(`Check Item Error [${id}]:`, error.message);
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ success: false, error: error.message || "Unknown server error" });
     }
   });
 
