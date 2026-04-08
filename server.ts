@@ -279,6 +279,12 @@ async function startServer() {
     }
   });
 
+  // Catch-all for undefined API routes
+  app.all("/api/*", (req, res) => {
+    console.warn(`[API] 404 Not Found: ${req.method} ${req.url}`);
+    res.status(404).json({ success: false, error: `API route not found: ${req.method} ${req.url}` });
+  });
+
   // --- Vite Middleware ---
   const nodeEnv = getEnv("NODE_ENV");
 
@@ -295,6 +301,18 @@ async function startServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // Global Error Handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[SERVER ERROR]", err);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        success: false, 
+        error: err.message || "Internal Server Error",
+        stack: getEnv("NODE_ENV") !== "production" ? err.stack : undefined
+      });
+    }
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
