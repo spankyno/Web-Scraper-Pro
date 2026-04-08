@@ -990,14 +990,22 @@ const Favorites = () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("No session");
 
-      const response = await fetch(`/api/check-item/${id}`, {
+      const response = await fetch(`/api/monitor/check/${encodeURIComponent(id)}?t=${Date.now()}`, {
         method: "POST",
         headers: { 
           "Authorization": `Bearer ${session.access_token}`
         }
       });
 
-      const data = await response.json() as { success: boolean, price?: number, error?: string };
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text) as { success: boolean, price?: number, error?: string };
+      } catch (e) {
+        console.error("Failed to parse JSON response:", text);
+        throw new Error(`Server returned non-JSON response: ${text.substring(0, 100)}`);
+      }
+
       if (!data.success) throw new Error(data.error);
 
       toast.success(`Check completed! New price: ${data.price}`);
