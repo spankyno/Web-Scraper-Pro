@@ -820,11 +820,6 @@ const Dashboard = () => {
               </Badge>
             </div>
             <div className="flex items-center gap-2">
-              {result.success && (
-                <Button variant="outline" size="sm" className="gap-2 text-yellow-500 border-yellow-500/50 hover:bg-yellow-500/10" onClick={() => setIsFavModalOpen(true)}>
-                  <Star size={14} /> Monitor Item
-                </Button>
-              )}
               <Button variant="outline" size="sm" className="gap-2" onClick={() => handleExport("json")}>
                 <Download size={14} /> JSON
               </Button>
@@ -836,6 +831,17 @@ const Dashboard = () => {
               </Button>
             </div>
           </div>
+
+          {result.success && (
+            <div className="flex justify-center">
+              <Button 
+                className="w-full md:w-1/2 h-14 text-lg gap-2 bg-yellow-500 hover:bg-yellow-600 text-white shadow-lg shadow-yellow-500/20" 
+                onClick={() => setIsFavModalOpen(true)}
+              >
+                <Star size={20} fill="currentColor" /> Monitor Item
+              </Button>
+            </div>
+          )}
 
           <Card>
             <ScrollArea className="h-[400px]">
@@ -981,62 +987,20 @@ const Favorites = () => {
   const handleCheckNow = async (id: string) => {
     setIsChecking(id);
     try {
-      const item = items.find(i => i.id === id);
-      if (!item) return;
-
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("No session");
 
-      // Perform a fresh scrape
-      const response = await fetch("/api/scrape", {
+      const response = await fetch(`/api/check-item/${id}`, {
         method: "POST",
         headers: { 
-          "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({ 
-          url: item.url, 
-          method: item.method || "fetch-light", 
-          instruction: `Extract the current price from this page. Look for the value associated with '${item.price_selector || 'price'}'.` 
-        }),
+        }
       });
 
-      const data = await response.json() as any;
+      const data = await response.json() as { success: boolean, price?: number, error?: string };
       if (!data.success) throw new Error(data.error);
 
-      // Try to find the new price in the result
-      let newPrice = item.price_current;
-      const resultData = data.result;
-      
-      if (item.price_selector && resultData[item.price_selector]) {
-        const rawVal = String(resultData[item.price_selector]);
-        newPrice = parseFloat(rawVal.replace(/[^\d.,]/g, '').replace(',', '.')) || newPrice;
-      } else {
-        // Fallback: search for any price-like value
-        const keys = Object.keys(resultData);
-        const priceKey = keys.find(k => /price|cost|valor/i.test(k));
-        if (priceKey) {
-          const rawVal = String(resultData[priceKey]);
-          newPrice = parseFloat(rawVal.replace(/[^\d.,]/g, '').replace(',', '.')) || newPrice;
-        }
-      }
-
-      // Update database
-      const status = newPrice < item.price_current ? "down" : (newPrice > item.price_current ? "up" : "stable");
-      
-      const { error } = await supabase
-        .from("monitored_items")
-        .update({ 
-          price_previous: item.price_current,
-          price_current: newPrice,
-          status,
-          last_checked: new Date().toISOString()
-        })
-        .eq("id", id);
-
-      if (error) throw error;
-
-      toast.success(`Check completed! New price: ${newPrice}`);
+      toast.success(`Check completed! New price: ${data.price}`);
       fetchItems();
     } catch (error: any) {
       console.error("Check Now Error:", error);
