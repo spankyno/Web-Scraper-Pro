@@ -3,7 +3,7 @@ import * as cheerio from "cheerio";
 import { GoogleGenAI, Type } from "@google/genai";
 import { DOMParser } from "xmldom";
 import xpath from "xpath";
-import { extractPriceSmart } from "./price-extractor";
+import { extractPriceSmart } from "./price-extractor.js";
 
 // Helper for retries
 const fetchWithRetry = async (url: string, options: any, retries = 1, delay = 800) => {
@@ -78,13 +78,6 @@ export const engines = {
     const cleanHtml = $('body').html()?.substring(0, 45000) || response.data.substring(0, 40000);
     
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-    const model = (ai as any).getGenerativeModel({ 
-      model: "gemini-1.5-flash",
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: 300,
-      }
-    });
 
     const prompt = `Extrae SOLO el precio actual del producto de esta página.
 Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta:
@@ -97,11 +90,20 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta:
 Si no ves precio claro, usa la función extractPriceSmart que ya está en el backend. HTML (primeros 45.000 caracteres limpios):
 ${cleanHtml}`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const result = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        temperature: 0,
+        maxOutputTokens: 300,
+        responseMimeType: "application/json"
+      }
+    });
+
+    const text = result.text;
     try {
-      const jsonStr = text.replace(/```json\n?|```/g, '').trim();
-      return JSON.parse(jsonStr);
+      if (!text) throw new Error("Empty response from AI");
+      return JSON.parse(text);
     } catch (e) {
       console.error("Gemini Parse Error:", text);
       return { error: "Failed to parse AI response", raw: text };
