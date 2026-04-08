@@ -8,6 +8,8 @@ import { supabase } from "./api/lib/supabase.js";
 import { authenticateToken } from "./api/lib/auth.js";
 import { Parser } from "json2csv";
 import dotenv from "dotenv";
+import { extractPriceSmart } from "./api/lib/price-extractor.js";
+import { sendPriceAlert } from "./api/lib/notifications.js";
 
 dotenv.config();
 
@@ -158,6 +160,76 @@ async function startServer() {
       }
       
       res.status(500).json({ success: false, error: errorMessage });
+    }
+  });
+
+  app.post("/api/check-item/:id", expressAuthMiddleware, async (req: AuthRequest, res) => {
+    const { id } = req.params;
+    try {
+      // 1. Get item
+      const { data: item, error: fetchError } = await supabase
+        .from("monitored_items")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (fetchError || !item) {
+        return res.status(404).json({ success: false, error: "Item not found" });
+      }
+
+      // 2. Scrape
+      const response = await axios.get(item.url, { 
+        headers: { 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Referer': 'https://www.google.com/'
+        },
+        timeout: 20000
+      });
+      
+      const smartPrice = await extractPriceSmart(response.data, item.url);
+      const currentPrice = smartPrice.price || 0;
+
+      // 3. Detect changes
+      let status = "stable";
+      if (currentPrice > 0 && item.price_current > 0) {
+        if (currentPrice < item.price_current) status = "down";
+        else if (currentPrice > item.price_current) status = "up";
+      }
+
+      const isPriceDrop = currentPrice > 0 && item.price_current > 0 && currentPrice < item.price_current;
+      const dropPct = isPriceDrop ? ((item.price_current - currentPrice) / item.price_current) * 100 : 0;
+      const threshold = item.threshold || 10;
+      const alertPrice = item.alert_price || 0;
+
+      // 4. Notify
+      const shouldNotify = (isPriceDrop && dropPct >= threshold) || (currentPrice > 0 && alertPrice > 0 && currentPrice <= alertPrice);
+      if (shouldNotify) {
+        await sendPriceAlert(item, currentPrice, dropPct);
+      }
+
+      // 5. Update item
+      const updatePayload = {
+        price_previous: item.price_current,
+        price_current: currentPrice,
+        status: status,
+        last_checked: new Date().toISOString(),
+        price_confidence: smartPrice.confidence,
+        price_extraction_method: smartPrice.method,
+        last_error: null
+      };
+
+      const { error: updateError } = await supabase
+        .from("monitored_items")
+        .update(updatePayload)
+        .eq("id", id);
+
+      if (updateError) throw updateError;
+
+      res.json({ success: true, price: currentPrice, notified: shouldNotify });
+    } catch (error: any) {
+      console.error(`Check Item Error [${id}]:`, error.message);
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 
