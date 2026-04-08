@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import axios from "axios";
 import { extractPriceSmart } from "../../api/lib/price-extractor.js";
 import { engines } from "../../api/lib/engines.js";
+import { sendPriceAlert } from "../../api/lib/notifications.js";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -83,20 +84,7 @@ export async function runPriceCheck(env: any) {
       const shouldNotify = (isPriceDrop && dropPct >= threshold) || (currentPrice > 0 && alertPrice > 0 && currentPrice <= alertPrice);
 
       if (shouldNotify && telegramToken) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("telegram_chat_id")
-          .eq("id", item.user_id)
-          .single();
-
-        if (profile?.telegram_chat_id) {
-          const message = `🔔 *Alerta de precio — WebScraper Pro*\n\n📦 *${item.title}*\n🔗 [Ver producto](${item.url})\n\n💰 Precio anterior: ~~€${item.price_current}~~\n✅ Precio actual: *€${currentPrice}*\n📉 Bajada: -${dropPct.toFixed(1)}%\n\n👉 [Ir a la web](${item.url})`;
-          await axios.post(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
-            chat_id: profile.telegram_chat_id,
-            text: message,
-            parse_mode: "Markdown"
-          });
-        }
+        await sendPriceAlert(item, currentPrice, dropPct);
       }
 
       // 5. Update item
