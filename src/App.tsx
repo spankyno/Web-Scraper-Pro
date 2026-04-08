@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
 import { 
   Search, 
   Star, 
@@ -87,6 +87,7 @@ interface MonitoredItem {
   check_interval?: string;
   notification_channel?: "telegram" | "email" | "both";
   next_check?: string;
+  method?: string;
 }
 
 // --- Components ---
@@ -95,7 +96,7 @@ const Sidebar = ({ user, onLogout }: { user: any, onLogout: () => void }) => {
   const location = useLocation();
   const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-    { icon: Star, label: "Favorites", path: "/favorites" },
+    { icon: Star, label: "En seguimiento", path: "/favorites" },
     { icon: History, label: "History", path: "/history" },
     { icon: Settings, label: "Settings", path: "/settings" },
   ];
@@ -204,16 +205,41 @@ const FullResultModal = ({ isOpen, onClose, result }: { isOpen: boolean, onClose
   );
 };
 
-const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extractedData }: { isOpen: boolean, onClose: () => void, initialUrl: string, initialTitle?: string, extractedData?: any }) => {
+const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extractedData, initialMethod }: { isOpen: boolean, onClose: () => void, initialUrl: string, initialTitle?: string, extractedData?: any, initialMethod?: string }) => {
   const [name, setName] = useState(initialTitle || "");
   const [priceSelector, setPriceSelector] = useState("");
   const [priceCurrent, setPriceCurrent] = useState<number>(0);
   const [priceCurrency, setPriceCurrency] = useState("€");
   const [customSelectors, setCustomSelectors] = useState("");
   const [threshold, setThreshold] = useState(10);
+  const [alertPrice, setAlertPrice] = useState<number>(0);
   const [interval, setInterval] = useState("1h");
   const [channel, setChannel] = useState<"telegram" | "email" | "both">("telegram");
+  const [method, setMethod] = useState(initialMethod || "fetch-light");
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (priceCurrent > 0) {
+      const calculated = priceCurrent * (1 - threshold / 100);
+      setAlertPrice(Number(calculated.toFixed(2)));
+    }
+  }, [priceCurrent, threshold]);
+
+  const handleThresholdChange = (val: number) => {
+    setThreshold(val);
+    if (priceCurrent > 0) {
+      const calculated = priceCurrent * (1 - val / 100);
+      setAlertPrice(Number(calculated.toFixed(2)));
+    }
+  };
+
+  const handleAlertPriceChange = (val: number) => {
+    setAlertPrice(val);
+    if (priceCurrent > 0) {
+      const calculatedThreshold = ((priceCurrent - val) / priceCurrent) * 100;
+      setThreshold(Math.max(0, Math.min(100, Number(calculatedThreshold.toFixed(1)))));
+    }
+  };
 
   // Helper to find potential prices in extracted data
   const findPrices = (data: any): { key: string, value: string, numeric: number, currency: string }[] => {
@@ -287,11 +313,12 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
         price_currency: priceCurrency,
         status: "stable",
         last_checked: new Date().toISOString(),
-        next_check: new Date().toISOString()
+        next_check: new Date().toISOString(),
+        method
       });
 
       if (error) throw error;
-      toast.success("Item added to favorites!");
+      toast.success("Item añadido a seguimiento!");
       onClose();
     } catch (error: any) {
       toast.error("Failed to add item: " + error.message);
@@ -355,10 +382,29 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Alert Threshold ({threshold}%)</Label>
-            <Slider value={[threshold]} onValueChange={(v) => setThreshold(v[0])} max={50} step={1} />
-            <p className="text-[10px] text-muted-foreground">Notify if price drops more than {threshold}%</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Alert Threshold ({threshold}%)</Label>
+              <Slider 
+                value={[threshold]} 
+                onValueChange={(v) => handleThresholdChange(v[0])} 
+                max={100} 
+                step={0.1} 
+              />
+              <p className="text-[10px] text-muted-foreground">Notify if price drops more than {threshold}%</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Alert Price</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">{priceCurrency}</span>
+                <Input 
+                  type="number" 
+                  className="pl-7"
+                  value={alertPrice} 
+                  onChange={(e) => handleAlertPriceChange(parseFloat(e.target.value) || 0)} 
+                />
+              </div>
+            </div>
           </div>
           
           <div className="grid grid-cols-2 gap-4">
@@ -403,6 +449,7 @@ const AddFavoriteModal = ({ isOpen, onClose, initialUrl, initialTitle, extracted
 };
 
 const Dashboard = () => {
+  const location = useLocation();
   const [url, setUrl] = useState("");
   const [method, setMethod] = useState("fetch-light");
   const [instruction, setInstruction] = useState("");
@@ -410,6 +457,16 @@ const Dashboard = () => {
   const [result, setResult] = useState<ScrapeResult | null>(null);
   const [isFavModalOpen, setIsFavModalOpen] = useState(false);
   const [isFullResultOpen, setIsFullResultOpen] = useState(false);
+
+  useEffect(() => {
+    if (location.state?.url) {
+      setUrl(location.state.url);
+      if (location.state.method) setMethod(location.state.method);
+      if (location.state.instruction) setInstruction(location.state.instruction);
+      // Automatically trigger scrape if coming from history?
+      // handleScrape();
+    }
+  }, [location.state]);
 
   const handleScrape = async () => {
     if (!url) return toast.error("Please enter a URL");
@@ -659,6 +716,7 @@ const Dashboard = () => {
         initialUrl={url}
         initialTitle={result?.result?.title || result?.result?.name}
         extractedData={result?.result}
+        initialMethod={method}
       />
 
       <FullResultModal 
@@ -701,7 +759,7 @@ const Favorites = () => {
     
     if (error) toast.error("Failed to update status");
     else {
-      toast.success(currentStatus ? "Monitoring paused" : "Monitoring resumed");
+      toast.success(currentStatus ? "Seguimiento pausado" : "Seguimiento reanudado");
       fetchItems();
     }
   };
@@ -714,7 +772,7 @@ const Favorites = () => {
     
     if (error) toast.error("Failed to delete item");
     else {
-      toast.success("Item removed from favorites");
+      toast.success("Item eliminado de seguimiento");
       fetchItems();
     }
   };
@@ -737,7 +795,7 @@ const Favorites = () => {
         },
         body: JSON.stringify({ 
           url: item.url, 
-          method: "fetch-light", 
+          method: item.method || "fetch-light", 
           instruction: `Extract the current price from this page. Look for the value associated with '${item.price_selector || 'price'}'.` 
         }),
       });
@@ -796,11 +854,21 @@ const Favorites = () => {
     }
   };
 
+  const getEngineIcon = (method: string) => {
+    switch (method) {
+      case "fetch-light": return <Zap size={10} className="text-yellow-500" />;
+      case "playwright": return <Bot size={10} className="text-blue-500" />;
+      case "gemini-ai": return <Bot size={10} className="text-purple-500" />;
+      case "importxml": return <FileCode size={10} className="text-green-500" />;
+      default: return <Globe size={10} />;
+    }
+  };
+
   return (
     <div className="p-8 space-y-8 max-w-6xl mx-auto">
       <header className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Monitored Items</h2>
+          <h2 className="text-3xl font-bold tracking-tight">En seguimiento</h2>
           <p className="text-muted-foreground">Real-time price tracking and alerts.</p>
         </div>
         <Button className="gap-2" onClick={() => window.location.href = "/"}>
@@ -840,7 +908,13 @@ const Favorites = () => {
                     </div>
                   </div>
                   <CardTitle className="text-lg truncate">{item.title}</CardTitle>
-                  <CardDescription className="truncate text-xs flex items-center gap-1">
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 gap-1 font-normal">
+                      {getEngineIcon(item.method || "fetch-light")}
+                      {item.method || "fetch-light"}
+                    </Badge>
+                  </div>
+                  <CardDescription className="truncate text-xs flex items-center gap-1 mt-2">
                     <Globe size={10} /> {item.url}
                   </CardDescription>
                 </CardHeader>
@@ -911,6 +985,7 @@ const Favorites = () => {
 };
 
 const HistoryPage = () => {
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
@@ -930,6 +1005,16 @@ const HistoryPage = () => {
     };
     fetchJobs();
   }, []);
+
+  const handleReSearch = (job: any) => {
+    navigate("/", { 
+      state: { 
+        url: job.url, 
+        method: job.method,
+        instruction: job.instruction
+      } 
+    });
+  };
 
   return (
     <div className="p-8 space-y-8 max-w-6xl mx-auto">
@@ -987,12 +1072,17 @@ const HistoryPage = () => {
                     {job.duration}ms
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => {
-                      setSelectedJob(job);
-                      setIsModalOpen(true);
-                    }}>
-                      <Eye size={14} />
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => handleReSearch(job)} title="Volver a buscar">
+                        <Search size={14} />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => {
+                        setSelectedJob(job);
+                        setIsModalOpen(true);
+                      }}>
+                        <Eye size={14} />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
