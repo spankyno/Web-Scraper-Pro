@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import axios from "axios";
-import { extractPriceSmart } from "../../api/lib/price-extractor";
-import { engines } from "../../api/lib/engines";
+import { extractPriceSmart } from "../../api/lib/price-extractor.js";
+import { engines } from "../../api/lib/engines.js";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -101,32 +101,56 @@ export async function runPriceCheck(env: any) {
       else if (interval === "6h") nextCheckDate.setHours(nextCheckDate.getHours() + 6);
       else nextCheckDate.setDate(nextCheckDate.getDate() + 1);
 
-      await supabase
+      const updatePayload: any = {
+        price_previous: item.price_current,
+        price_current: currentPrice,
+        status: status,
+        last_checked: now,
+        next_check: nextCheckDate.toISOString(),
+        price_confidence: smartPrice.confidence,
+        price_extraction_method: smartPrice.method,
+        last_error: null
+      };
+
+      let { error: updateError } = await supabase
         .from("monitored_items")
-        .update({
-          price_previous: item.price_current,
-          price_current: currentPrice,
-          status: status,
-          last_checked: now,
-          next_check: nextCheckDate.toISOString(),
-          price_confidence: smartPrice.confidence,
-          price_extraction_method: smartPrice.method,
-          last_error: null
-        })
+        .update(updatePayload)
         .eq("id", item.id);
+
+      // Fallback if columns are missing
+      if (updateError && (updateError.message.includes("price_confidence") || updateError.code === "PGRST204")) {
+        const basicPayload = { ...updatePayload };
+        delete basicPayload.price_confidence;
+        delete basicPayload.price_extraction_method;
+        delete basicPayload.last_error;
+        await supabase
+          .from("monitored_items")
+          .update(basicPayload)
+          .eq("id", item.id);
+      }
 
       results.push({ id: item.id, status: "updated", change: isPriceDrop, price: currentPrice });
     } catch (itemErr: any) {
       console.error(`Error checking item ${item.id}:`, itemErr.message);
       
-      // Update last_error in DB
-      await supabase
+      // Update last_error in DB with fallback
+      const errorPayload: any = { 
+        last_error: itemErr.message,
+        last_checked: now 
+      };
+      
+      let { error: logError } = await supabase
         .from("monitored_items")
-        .update({ 
-          last_error: itemErr.message,
-          last_checked: now 
-        })
+        .update(errorPayload)
         .eq("id", item.id);
+      
+      if (logError && logError.message.includes("last_error")) {
+        delete errorPayload.last_error;
+        await supabase
+          .from("monitored_items")
+          .update(errorPayload)
+          .eq("id", item.id);
+      }
 
       results.push({ id: item.id, status: "error", error: itemErr.message });
     }
