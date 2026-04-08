@@ -74,9 +74,13 @@ export async function runPriceCheck(env: any) {
       const isPriceDrop = currentPrice > 0 && item.price_current > 0 && currentPrice < item.price_current;
       const dropPct = isPriceDrop ? ((item.price_current - currentPrice) / item.price_current) * 100 : 0;
       const threshold = item.threshold || 10;
+      const alertPrice = item.alert_price || 0;
 
       // 4. Notify
-      if (isPriceDrop && dropPct >= threshold && telegramToken) {
+      // Notify if drop % >= threshold OR currentPrice <= alertPrice
+      const shouldNotify = (isPriceDrop && dropPct >= threshold) || (currentPrice > 0 && alertPrice > 0 && currentPrice <= alertPrice);
+
+      if (shouldNotify && telegramToken) {
         const { data: profile } = await supabase
           .from("profiles")
           .select("telegram_chat_id")
