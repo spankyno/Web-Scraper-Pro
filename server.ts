@@ -71,12 +71,54 @@ async function startServer() {
       let result;
       const start = Date.now();
       
-      if (method === "fetch-light") result = await (engines as any)["fetch-light"](url);
-      else if (method === "cheerio") result = await (engines as any)["cheerio"](url);
-      else if (method === "gemini-ai") result = await (engines as any)["gemini-ai"](url, instruction);
-      else if (method === "playwright") result = await (engines as any)["playwright"](url);
-      else if (method === "importxml") result = await (engines as any)["importxml"](url, query);
-      else throw new Error("Method not implemented yet");
+      const executeScrape = async (m: string) => {
+        if (m === "fetch-light") return await (engines as any)["fetch-light"](url);
+        if (m === "cheerio") return await (engines as any)["cheerio"](url);
+        if (m === "gemini-ai") {
+          if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY not configured");
+          return await (engines as any)["gemini-ai"](url, instruction || "Extract current price and product title");
+        }
+        if (m === "playwright") {
+          if (!process.env.BROWSERLESS_API_KEY) throw new Error("BROWSERLESS_API_KEY not configured");
+          return await (engines as any)["playwright"](url);
+        }
+        if (m === "importxml") return await (engines as any)["importxml"](url, query);
+        throw new Error(`Method '${m}' not implemented.`);
+      };
+
+      // Try primary method
+      try {
+        result = await executeScrape(method);
+        
+        // Fallback logic if confidence is low or result is poor
+        const needsFallback = (method === "fetch-light" || method === "cheerio") && 
+                             (!result.price || (result.confidence && result.confidence < 60));
+
+        if (needsFallback) {
+          console.log(`Low confidence (${result.confidence}%) with ${method}. Trying Gemini fallback...`);
+          try {
+            const fallbackResult = await executeScrape("gemini-ai");
+            if (fallbackResult && fallbackResult.price) {
+              result = { ...fallbackResult, fallback_from: method };
+            }
+          } catch (geminiErr) {
+            console.error("Gemini fallback failed, trying Playwright...", geminiErr);
+            try {
+              const pwResult = await executeScrape("playwright");
+              result = { ...pwResult, fallback_from: "gemini-ai" };
+            } catch (pwErr) {
+              console.error("All fallbacks failed.");
+            }
+          }
+        }
+      } catch (primaryErr) {
+        console.error(`Primary method ${method} failed. Trying fallback...`);
+        if (method !== "gemini-ai") {
+          result = await executeScrape("gemini-ai");
+        } else {
+          throw primaryErr;
+        }
+      }
 
       const duration = Date.now() - start;
       
