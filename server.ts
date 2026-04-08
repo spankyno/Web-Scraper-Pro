@@ -11,6 +11,15 @@ import dotenv from "dotenv";
 import { extractPriceSmart } from "./api/lib/price-extractor.js";
 import { sendPriceAlert } from "./api/lib/notifications.js";
 
+const getEnv = (key: string) => {
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {}
+  return "";
+};
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -77,11 +86,11 @@ async function startServer() {
         if (m === "fetch-light") return await (engines as any)["fetch-light"](url);
         if (m === "cheerio") return await (engines as any)["cheerio"](url);
         if (m === "gemini-ai") {
-          if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY not configured");
+          if (!getEnv("GEMINI_API_KEY")) throw new Error("GEMINI_API_KEY not configured");
           return await (engines as any)["gemini-ai"](url, instruction || "Extract current price and product title");
         }
         if (m === "playwright") {
-          if (!process.env.BROWSERLESS_API_KEY) throw new Error("BROWSERLESS_API_KEY not configured");
+          if (!getEnv("BROWSERLESS_API_KEY")) throw new Error("BROWSERLESS_API_KEY not configured");
           return await (engines as any)["playwright"](url);
         }
         if (m === "importxml") return await (engines as any)["importxml"](url, query);
@@ -255,7 +264,7 @@ async function startServer() {
 
   app.post("/api/notifications/test", async (req, res) => {
     const { chatId } = req.body;
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = getEnv("TELEGRAM_BOT_TOKEN");
     if (!token) return res.status(500).json({ success: false, error: "TELEGRAM_BOT_TOKEN not configured" });
     
     try {
@@ -271,8 +280,9 @@ async function startServer() {
   });
 
   // --- Vite Middleware ---
+  const nodeEnv = getEnv("NODE_ENV");
 
-  if (process.env.NODE_ENV !== "production") {
+  if (nodeEnv !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
