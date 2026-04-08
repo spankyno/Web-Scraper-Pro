@@ -1,8 +1,17 @@
 import axios from "axios";
 import { supabase } from "./supabase.js";
 
+const getEnv = (key: string) => {
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {}
+  return "";
+};
+
 export async function sendPriceAlert(item: any, currentPrice: number, dropPct: number) {
-  const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+  const telegramToken = getEnv("TELEGRAM_BOT_TOKEN");
   if (!telegramToken) return;
 
   const { data: profile } = await supabase

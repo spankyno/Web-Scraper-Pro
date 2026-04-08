@@ -5,6 +5,15 @@ import { DOMParser } from "xmldom";
 import xpath from "xpath";
 import { extractPriceSmart } from "./price-extractor.js";
 
+const getEnv = (key: string) => {
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {}
+  return "";
+};
+
 // Helper for retries
 const fetchWithRetry = async (url: string, options: any, retries = 1, delay = 800) => {
   try {
@@ -77,7 +86,7 @@ export const engines = {
     $('script, style, noscript, iframe, svg, canvas').remove();
     const cleanHtml = $('body').html()?.substring(0, 45000) || response.data.substring(0, 40000);
     
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+    const ai = new GoogleGenAI({ apiKey: getEnv("GEMINI_API_KEY") });
 
     const prompt = `Extrae SOLO el precio actual del producto de esta página.
 Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta:
@@ -110,7 +119,7 @@ ${cleanHtml}`;
     }
   },
   "playwright": async (url: string) => {
-    const apiKey = process.env.BROWSERLESS_API_KEY;
+    const apiKey = getEnv("BROWSERLESS_API_KEY");
     if (!apiKey) throw new Error("BROWSERLESS_API_KEY not configured");
     
     const cleanUrl = url.split('?')[0];
