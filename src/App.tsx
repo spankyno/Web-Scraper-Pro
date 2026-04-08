@@ -993,12 +993,14 @@ const Favorites = () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("No session found. Please log in again.");
 
-      const response = await fetch(`/api/monitor/check/${encodeURIComponent(id)}?t=${Date.now()}`, {
+      const response = await fetch(`/api/check-now?t=${Date.now()}`, {
         method: "POST",
         headers: { 
           "Authorization": `Bearer ${session.access_token}`,
-          "Accept": "application/json"
-        }
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ id })
       });
 
       const text = await response.text();
