@@ -422,11 +422,22 @@ const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extract
 
   const detectedPrices = findPrices(extractedData);
 
+  // Variants extracted by the backend (Shopify, WooCommerce, JSON-LD, Next.js…)
+  const detectedVariants: Array<{ name: string; price: number; currency: string; sku?: string }> =
+    extractedData?.variants || extractedData?.result?.variants || [];
+
   const selectPrice = (p: any) => {
     setPriceSelector(p.key);
     setPriceCurrent(p.numeric);
     setPriceCurrency(p.currency);
     toast.info(`Selected price: ${p.value}`);
+  };
+
+  const selectVariant = (v: { name: string; price: number; currency: string; sku?: string }) => {
+    setPriceSelector(v.sku || v.name);
+    setPriceCurrent(v.price);
+    setPriceCurrency(v.currency === 'EUR' ? '€' : v.currency);
+    toast.info(`Selected variant: ${v.name} — ${v.price} ${v.currency}`);
   };
 
   const handleSave = async () => {
@@ -521,7 +532,33 @@ const AddMonitoringModal = ({ isOpen, onClose, initialUrl, initialTitle, extract
             </div>
           )}
 
-          {detectedPrices.length > 0 && (
+          {detectedVariants.length > 0 && (
+            <div className="space-y-2">
+              <Label className="text-primary flex items-center gap-1">
+                🎨 Product Variants ({detectedVariants.length}) — Click to select
+              </Label>
+              <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1">
+                {detectedVariants.map((v, i) => (
+                  <Button
+                    key={i}
+                    variant={(priceSelector === (v.sku || v.name)) ? "default" : "outline"}
+                    size="sm"
+                    className="text-xs h-auto py-1.5 px-2.5 flex flex-col items-start border-primary/40"
+                    onClick={() => selectVariant(v)}
+                  >
+                    <span className="font-bold">{v.price.toFixed(2)} {v.currency === 'EUR' ? '€' : v.currency}</span>
+                    <span className="text-[9px] opacity-80 max-w-[120px] truncate">{v.name}</span>
+                    {v.sku && <span className="text-[8px] opacity-50">SKU: {v.sku}</span>}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Source: <span className="font-mono">{extractedData?.variantsSource || extractedData?.result?.variantsSource}</span>
+              </p>
+            </div>
+          )}
+
+          {detectedPrices.length > 0 && detectedVariants.length === 0 && (
             <div className="space-y-2">
               <Label className="text-primary">Detected Prices (Click to select)</Label>
               <div className="flex flex-wrap gap-2">
