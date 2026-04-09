@@ -1,7 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import axios from 'axios';
 import { supabase } from './lib/supabase.js';
-import { extractPriceSmart } from './lib/price-extractor.js';
+import { scrapeUrl, findVariantPrice } from './lib/scraper-service.js';
 import { sendPriceAlert } from './lib/notifications.js';
 import { authenticateToken } from './lib/auth.js';
 
@@ -47,17 +46,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 2. Scrape
-    const response = await axios.get(item.url, { 
-      headers: { 
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Referer': 'https://www.google.com/'
-      },
-      timeout: 25000
-    });
+    const result = await scrapeUrl(item.url, item.method || 'fetch-light');
     
-    const smartPrice = await extractPriceSmart(response.data, item.url);
-    const currentPrice = smartPrice.price || 0;
+    let currentPrice = result.price || 0;
+
+    // Check if we need to find a specific variant
+    if (item.price_selector && result.variants && result.variants.length > 0) {
+      const variantPrice = findVariantPrice(result.variants, item.price_selector);
+      if (variantPrice) {
+        console.log(`Found variant price for ${item.price_selector}: ${variantPrice}`);
+        currentPrice = variantPrice;
+      }
+    }
 
     // 3. Detect changes
     let status = "stable";
@@ -83,8 +83,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       price_current: currentPrice,
       status: status,
       last_checked: new Date().toISOString(),
-      price_confidence: smartPrice.confidence,
-      price_extraction_method: smartPrice.method,
+      price_confidence: result.confidence,
+      price_extraction_method: result.method,
       last_error: null
     };
 
