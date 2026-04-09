@@ -79,18 +79,28 @@ export const engines = {
       rawHtmlSnippet: response.data.substring(0, 1000)
     };
   },
-  "gemini-ai": async (url: string, instruction: string) => {
-    const response = await axios.get(url, {
-      headers: BROWSER_HEADERS,
-      timeout: 20000
-    });
+  "gemini-ai": async (url: string, instruction: string, html?: string) => {
+    let cleanHtml = "";
+    let rawHtml = "";
 
-    const $ = cheerio.load(response.data);
-    $('script, style, noscript, iframe, svg, canvas').remove();
-    const cleanHtml = $('body').html()?.substring(0, 45000) || response.data.substring(0, 40000);
+    if (html) {
+      rawHtml = html;
+      const $ = cheerio.load(html);
+      $('script, style, noscript, iframe, svg, canvas').remove();
+      cleanHtml = $('body').html()?.substring(0, 45000) || html.substring(0, 40000);
+    } else {
+      const response = await axios.get(url, {
+        headers: BROWSER_HEADERS,
+        timeout: 20000
+      });
+      rawHtml = response.data;
+      const $ = cheerio.load(response.data);
+      $('script, style, noscript, iframe, svg, canvas').remove();
+      cleanHtml = $('body').html()?.substring(0, 45000) || response.data.substring(0, 40000);
+    }
 
     // Also try to extract variants from raw HTML before sending to AI
-    const variantData = await extractAllVariants(response.data);
+    const variantData = await extractAllVariants(rawHtml);
 
     const ai = new GoogleGenAI({ apiKey: getEnv("GEMINI_API_KEY") });
 
@@ -106,7 +116,7 @@ Si no ves precio claro, devuelve confidence: 0. HTML (primeros 45.000 caracteres
 ${cleanHtml}`;
 
     const result = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         temperature: 0,
@@ -177,7 +187,20 @@ ${cleanHtml}`;
       ]
     }, { timeout: 45000 });
 
-    return response.data;
+    const html = response.data.data;
+    const smartPrice = await extractPriceSmart(html, url);
+    const variantData = await extractAllVariants(html);
+
+    return {
+      ...response.data,
+      price: smartPrice.price,
+      currency: smartPrice.currency,
+      confidence: smartPrice.confidence,
+      method: smartPrice.method,
+      variants: variantData.variants,
+      variantsSource: variantData.source,
+      html: html.substring(0, 2000)
+    };
   },
   "importxml": async (url: string, query: string) => {
     if (!query) throw new Error("XPath expression unspecified. Please provide a query.");
