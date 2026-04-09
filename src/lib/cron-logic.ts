@@ -45,12 +45,14 @@ export async function runPriceCheck(env: any) {
       }
       
       // 3. Detect changes
-      let status = "stable";
-      if (currentPrice > 0 && item.price_current > 0) {
+      let status: "up" | "down" | "stable" | "out_of_stock" = "stable";
+      if (!result.inStock) {
+        status = "out_of_stock";
+      } else if (currentPrice > 0 && item.price_current > 0) {
         if (currentPrice < item.price_current) status = "down";
         else if (currentPrice > item.price_current) status = "up";
       }
-      if (currentPrice === 0) status = "out_of_stock";
+      if (currentPrice === 0 && status !== "out_of_stock") status = "out_of_stock";
 
       const isPriceDrop = currentPrice > 0 && item.price_current > 0 && currentPrice < item.price_current;
       const dropPct = isPriceDrop ? ((item.price_current - currentPrice) / item.price_current) * 100 : 0;
