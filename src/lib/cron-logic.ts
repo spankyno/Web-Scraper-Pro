@@ -1,7 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import axios from "axios";
-import { extractPriceSmart } from "../../api/lib/price-extractor.js";
-import { engines } from "../../api/lib/engines.js";
+import { scrapeUrl, findVariantPrice } from "../../api/lib/scraper-service.js";
 import { sendPriceAlert } from "../../api/lib/notifications.js";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -32,37 +30,19 @@ export async function runPriceCheck(env: any) {
 
       console.log(`Checking price for: ${item.title} (${item.url})`);
       
-      // 2. Scrape using fetch-light + extractPriceSmart
-      const response = await axios.get(item.url, { 
-        headers: { 
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Referer': 'https://www.google.com/'
-        },
-        timeout: 20000
-      });
+      // 2. Scrape using ScraperService
+      const result = await scrapeUrl(item.url, item.method || 'fetch-light');
       
-      let smartPrice = await extractPriceSmart(response.data, item.url);
-      
-      // Fallback to Gemini if confidence is low
-      if (!smartPrice.price || smartPrice.confidence < 60) {
-        console.log(`Low confidence (${smartPrice.confidence}%). Falling back to Gemini...`);
-        try {
-          const geminiResult = await (engines as any)["gemini-ai"](item.url, "Extract current price");
-          if (geminiResult && geminiResult.price) {
-            smartPrice = {
-              price: typeof geminiResult.price === 'string' ? parseFloat(geminiResult.price.replace(/[^\d.]/g, '')) : geminiResult.price,
-              currency: geminiResult.currency || "EUR",
-              confidence: geminiResult.confidence || 80,
-              method: "gemini-ai-fallback"
-            };
-          }
-        } catch (e) {
-          console.error("Gemini fallback failed in cron:", e);
+      let currentPrice = result.price || 0;
+
+      // Check if we need to find a specific variant
+      if (item.price_selector && result.variants && result.variants.length > 0) {
+        const variantPrice = findVariantPrice(result.variants, item.price_selector);
+        if (variantPrice) {
+          console.log(`Found variant price for ${item.price_selector}: ${variantPrice}`);
+          currentPrice = variantPrice;
         }
       }
-
-      const currentPrice = smartPrice.price || 0;
       
       // 3. Detect changes
       let status = "stable";
@@ -70,7 +50,7 @@ export async function runPriceCheck(env: any) {
         if (currentPrice < item.price_current) status = "down";
         else if (currentPrice > item.price_current) status = "up";
       }
-      if (currentPrice === 0 && response.status === 200) status = "out_of_stock";
+      if (currentPrice === 0) status = "out_of_stock";
 
       const isPriceDrop = currentPrice > 0 && item.price_current > 0 && currentPrice < item.price_current;
       const dropPct = isPriceDrop ? ((item.price_current - currentPrice) / item.price_current) * 100 : 0;
@@ -78,9 +58,6 @@ export async function runPriceCheck(env: any) {
       const alertPrice = item.alert_price || 0;
 
       // 4. Notify
-      // Notify if:
-      // 1. There is a price drop AND it's >= threshold %
-      // 2. OR current price is <= alert price (even if it didn't change in this check)
       const shouldNotify = (isPriceDrop && dropPct >= threshold) || (currentPrice > 0 && alertPrice > 0 && currentPrice <= alertPrice);
 
       if (shouldNotify && telegramToken) {
@@ -101,8 +78,8 @@ export async function runPriceCheck(env: any) {
         status: status,
         last_checked: now,
         next_check: nextCheckDate.toISOString(),
-        price_confidence: smartPrice.confidence,
-        price_extraction_method: smartPrice.method,
+        price_confidence: result.confidence,
+        price_extraction_method: result.method,
         last_error: null
       };
 
