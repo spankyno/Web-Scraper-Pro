@@ -60,8 +60,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 3. Detect changes
-    let status = "stable";
-    if (currentPrice > 0 && item.price_current > 0) {
+    let status: "up" | "down" | "stable" | "out_of_stock" = "stable";
+    if (!result.inStock) {
+      status = "out_of_stock";
+    } else if (currentPrice > 0 && item.price_current > 0) {
       if (currentPrice < item.price_current) status = "down";
       else if (currentPrice > item.price_current) status = "up";
     }
