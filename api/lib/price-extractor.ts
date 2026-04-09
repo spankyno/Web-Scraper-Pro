@@ -6,8 +6,46 @@ export async function extractPriceSmart(html: string, url: string): Promise<{
   currency: string;
   confidence: number;
   method: string;
+  inStock: boolean;
+  productImage: string | null;
 }> {
   const $ = cheerio.load(html);
+
+  // Helper to find potential images
+  const detectImage = () => {
+    return $('meta[property="og:image"]').attr('content') ||
+           $('meta[name="twitter:image"]').attr('content') ||
+           $('meta[property="product:image"]').attr('content') ||
+           $('link[rel="image_src"]').attr('href') ||
+           $('.product-image img, .main-image img, #main-image, [class*="product"] img[src*="product"]').first().attr('src') ||
+           null;
+  };
+
+  const productImage = detectImage();
+
+  // Helper to detect stock status
+  const detectStock = () => {
+    const outOfStockText = /agotado|out of stock|no disponible|sin stock|sold out|no disponible temporalmente/i;
+    const inStockText = /en stock|disponible|in stock|hay stock|recíbelo/i;
+    
+    // Check common locations
+    const bodyText = $('body').text();
+    const stockEl = $('.stock, .availability, #availability, [class*="stock"], [class*="availability"]').text();
+    
+    if (outOfStockText.test(stockEl) || outOfStockText.test($('.buy-button, #add-to-cart').text())) return false;
+    if (inStockText.test(stockEl)) return true;
+    
+    // Fallback to checking if buy button exists and is not disabled
+    const buyButton = $('.buy-button, #add-to-cart, button[class*="buy"], button[class*="cart"], .btn-add-to-cart');
+    if (buyButton.length > 0) {
+      const isDisabled = buyButton.attr('disabled') !== undefined || buyButton.hasClass('disabled');
+      return !isDisabled;
+    }
+    
+    return true; // Assume in stock if we can't tell
+  };
+
+  const inStock = detectStock();
 
   // 1. JSON-LD (el más fiable hoy en día)
   const jsonLd = $('script[type="application/ld+json"]').get()
@@ -20,15 +58,23 @@ export async function extractPriceSmart(html: string, url: string): Promise<{
     const items = data["@graph"] ? data["@graph"] : [data];
     for (const item of items) {
       const offersRaw = item.offers;
-      const offer = Array.isArray(offersRaw) ? offersRaw[0] : offersRaw;
-      if (offer?.price || offer?.priceSpecification?.price) {
-        const val = offer.price || offer.priceSpecification?.price;
-        return {
-          price: typeof val === 'string' ? parsePrice(val) : val,
-          currency: offer.priceCurrency || "EUR",
-          confidence: 95,
-          method: "json-ld"
-        };
+      const offers = Array.isArray(offersRaw) ? offersRaw : (offersRaw ? [offersRaw] : []);
+      
+      for (const offer of offers) {
+        if (offer?.price || offer?.priceSpecification?.price) {
+          const val = offer.price || offer.priceSpecification?.price;
+          const availability = offer.availability || "";
+          const isOutOfStock = availability.includes('OutOfStock') || availability.includes('SoldOut');
+          
+          return {
+            price: typeof val === 'string' ? parsePrice(val) : val,
+            currency: offer.priceCurrency || "EUR",
+            confidence: 95,
+            method: "json-ld",
+            inStock: isOutOfStock ? false : inStock,
+            productImage: offer.image || productImage
+          };
+        }
       }
     }
   }
@@ -36,19 +82,36 @@ export async function extractPriceSmart(html: string, url: string): Promise<{
   // 2. Meta tags + Open Graph + Twitter
   const metaPrice = $('meta[property*="price:amount"]').attr('content') ||
                    $('meta[name*="price"]').attr('content') ||
-                   $('meta[itemprop*="price"]').attr('content');
+                   $('meta[itemprop*="price"]').attr('content') ||
+                   $('meta[property="og:price:amount"]').attr('content') ||
+                   $('meta[name="twitter:data1"]').attr('content'); // Amazon uses this sometimes
 
   if (metaPrice) {
     const num = parsePrice(metaPrice);
-    if (num) return { price: num, currency: "EUR", confidence: 80, method: "meta" };
+    if (num) return { price: num, currency: "EUR", confidence: 80, method: "meta", inStock, productImage };
   }
 
-  // 3. Selectores ultra-comunes
+  // 3. Selectores ultra-comunes (ampliados basándonos en patrones de tiendas populares)
   const selectors = [
+    // Genéricos
     '[data-price]', '[data-product-price]', '[data-test="price"]',
     '.price--current', '.product-price', '.price__current',
     '[class*="price"] strong', '[class*="price"] span',
-    '#price', '.current-price', 'meta[property="product:price:amount"]'
+    '#price', '.current-price', 'meta[property="product:price:amount"]',
+    // Amazon
+    '.a-price .a-offscreen', '#priceblock_ourprice', '#priceblock_dealprice',
+    // MediaMarkt / Saturn
+    '[data-test="product-price"]',
+    // PCComponentes
+    '#precio-principal', '.precio-actual',
+    // El Corte Inglés
+    '.price._current',
+    // Carrefour
+    '.buy-box__price',
+    // AliExpress
+    '.product-price-value',
+    // eBay
+    '#prcIsum', '#mm-saleDscPrc'
   ];
 
   for (const sel of selectors) {
@@ -56,21 +119,24 @@ export async function extractPriceSmart(html: string, url: string): Promise<{
     if (el.length) {
       const text = el.text().trim() || el.attr('content') || '';
       const num = parsePrice(text);
-      if (num) return { price: num, currency: detectCurrency(text), confidence: 70, method: "selector" };
+      if (num) return { price: num, currency: detectCurrency(text), confidence: 70, method: "selector", inStock, productImage };
     }
   }
 
   // 4. Regex agresiva en todo el HTML (último recurso)
-  const priceRegex = /(?<!\d)(?:\€|\$|USD|EUR)?\s*(\d{1,6}(?:[.,]\d{2}))\b/g;
+  const priceRegex = /(?<!\d)(?:\€|\$|USD|EUR|£|GBP)?\s*(\d{1,6}(?:[.,]\d{2}))\b/g;
   const matches = [...html.matchAll(priceRegex)];
   if (matches.length) {
-    const candidate = parseFloat(matches[0][1].replace(',', '.'));
-    if (!isNaN(candidate)) {
-      return { price: candidate, currency: "EUR", confidence: 50, method: "regex" };
+    // Intentamos buscar el primer número que parezca un precio real (no 0.00)
+    for (const match of matches) {
+      const candidate = parseFloat(match[1].replace(',', '.'));
+      if (candidate) {
+        return { price: candidate, currency: detectCurrency(match[0]), confidence: 50, method: "regex", inStock, productImage };
+      }
     }
   }
 
-  return { price: null, currency: "", confidence: 0, method: "failed" };
+  return { price: null, currency: "", confidence: 0, method: "failed", inStock: false, productImage: null };
 }
 
 // ─── NEW: Extract all product variants with their prices ─────────────────────
@@ -231,6 +297,7 @@ function parsePrice(text: string): number | null {
 function detectCurrency(text: string): string {
   if (text.includes('€') || text.includes('EUR')) return 'EUR';
   if (text.includes('$') || text.includes('USD')) return 'USD';
+  if (text.includes('£') || text.includes('GBP')) return 'GBP';
   return 'EUR';
 }
 

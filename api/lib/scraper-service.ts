@@ -75,6 +75,8 @@ export async function scrapeUrl(url: string, method: string = 'fetch-light', que
 
     return {
       ...result,
+      inStock: result.inStock ?? true,
+      productImage: result.productImage || null,
       effectiveMethod,
       antibotOverride
     };
@@ -87,7 +89,13 @@ export async function scrapeUrl(url: string, method: string = 'fetch-light', que
     if (effectiveMethod !== "gemini-ai") {
       try {
         const fallbackResult = await executeScrape("gemini-ai");
-        return { ...fallbackResult, fallback_from: effectiveMethod, effectiveMethod: "gemini-ai" };
+        return { 
+          ...fallbackResult, 
+          inStock: fallbackResult.inStock ?? true,
+          productImage: fallbackResult.productImage || null,
+          fallback_from: effectiveMethod, 
+          effectiveMethod: "gemini-ai" 
+        };
       } catch (e) {
         throw error;
       }

@@ -55,6 +55,7 @@ export const engines = {
       currency: smartPrice.currency,
       confidence: smartPrice.confidence,
       method: smartPrice.method,
+      inStock: smartPrice.inStock,
       variants: variantData.variants,
       variantsSource: variantData.source,
       url
@@ -73,7 +74,11 @@ export const engines = {
     return {
       title: $("title").text().trim(),
       h1: $("h1").first().text().trim(),
-      price: smartPrice,
+      price: smartPrice.price,
+      currency: smartPrice.currency,
+      confidence: smartPrice.confidence,
+      method: smartPrice.method,
+      inStock: smartPrice.inStock,
       variants: variantData.variants,
       variantsSource: variantData.source,
       rawHtmlSnippet: response.data.substring(0, 1000)
@@ -101,6 +106,7 @@ export const engines = {
 
     // Also try to extract variants from raw HTML before sending to AI
     const variantData = await extractAllVariants(rawHtml);
+    const smartPrice = await extractPriceSmart(rawHtml, url);
 
     const ai = new GoogleGenAI({ apiKey: getEnv("GEMINI_API_KEY") });
 
@@ -110,7 +116,9 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta:
   "price": 49.99,
   "currency": "EUR",
   "title": "...",
-  "confidence": 85
+  "confidence": 85,
+  "inStock": true,
+  "productImage": "https://..."
 }
 Si no ves precio claro, devuelve confidence: 0. HTML (primeros 45.000 caracteres limpios):
 ${cleanHtml}`;
@@ -131,6 +139,8 @@ ${cleanHtml}`;
       const parsed = JSON.parse(text);
       return {
         ...parsed,
+        inStock: parsed.inStock ?? smartPrice.inStock,
+        productImage: parsed.productImage || smartPrice.productImage,
         variants: variantData.variants,
         variantsSource: variantData.source,
       };
@@ -148,6 +158,7 @@ ${cleanHtml}`;
     const response = await axios.post(`https://chrome.browserless.io/scrape?token=${apiKey}`, {
       url: cleanUrl,
       waitFor: 8000,
+      stealth: true,
       elements: [
         { selector: "title" },
         { selector: "h1" },
@@ -197,6 +208,8 @@ ${cleanHtml}`;
       currency: smartPrice.currency,
       confidence: smartPrice.confidence,
       method: smartPrice.method,
+      inStock: smartPrice.inStock,
+      productImage: smartPrice.productImage,
       variants: variantData.variants,
       variantsSource: variantData.source,
       html: html.substring(0, 2000)
