@@ -1,18 +1,76 @@
-// types/index.ts
+// types/index.ts — alineado con el esquema real de Supabase
 
-export type ScrapingMethod = 'fetch' | 'browserless' | 'gemini' | 'hybrid' | 'auto'
+export type ScrapingMethod =
+  | 'fetch-light'
+  | 'browserless'
+  | 'gemini'
+  | 'hybrid'
+  | 'auto'
 
-export type JobStatus = 'pending' | 'running' | 'done' | 'error'
+export type ItemStatus = 'stable' | 'price_drop' | 'price_rise' | 'out_of_stock' | 'error'
 
-export type UserPlan = 'free' | 'pro'
-
-export type NotifyChannel = 'telegram' | 'email' | 'both' | 'none'
-
-export type CheckInterval = '1 hour' | '6 hours' | '12 hours' | '24 hours'
+export type NotificationChannel = 'telegram' | 'email' | 'both' | 'none'
 
 export type ExportFormat = 'json' | 'csv' | 'xml' | 'xlsx'
 
-// ─── Scraping ────────────────────────────────────────────────────────────────
+// ─── Tabla monitored_items (esquema real Supabase) ────────────────────────────
+export interface MonitoredItem {
+  id: string
+  user_id: string | null
+  url: string
+  title: string | null
+  price_current: number
+  price_previous: number
+  pricecurrent: number | null
+  priceprevious: number | null
+  pricecurrency: string
+  status: ItemStatus
+  last_checked: string
+  lastchecked: string | null
+  is_active: boolean
+  isactive: boolean | null
+  created_at: string
+  next_check: string
+  check_interval: string             // '1h' | '6h' | '12h' | '24h'
+  notification_channel: NotificationChannel
+  custom_selectors: CustomSelector[]
+  price_selector: string | null
+  threshold: number
+  alert_price: number | null
+  method: ScrapingMethod
+  price_confidence: number | null
+  price_extraction_method: string | null
+  last_error: string | null
+  image_url: string | null
+}
+
+export interface CustomSelector {
+  name: string
+  selector: string
+}
+
+// ─── Tabla scrape_jobs (esquema real Supabase) ────────────────────────────────
+export interface ScrapeJob {
+  id: string
+  user_id: string | null
+  url: string
+  method: string
+  result: ScrapeJobResult | null
+  duration: number | null
+  created_at: string
+}
+
+export interface ScrapeJobResult {
+  price?: number | null
+  price_text?: string
+  product_name?: string
+  in_stock?: boolean
+  currency?: string
+  confidence?: number
+  extraction_method?: string
+  data?: Record<string, unknown>[]
+  error?: string
+}
 
 export interface ScrapeRequest {
   url: string
@@ -21,114 +79,15 @@ export interface ScrapeRequest {
   aiInstruction?: string
 }
 
-export interface ScrapeResult {
-  success: boolean
-  url: string
-  method: ScrapingMethod
-  data: Record<string, unknown>[]
-  price?: number | null
-  currency?: string
-  inStock?: boolean
-  productName?: string
-  durationMs: number
-  error?: string
-}
-
-// ─── Monitor ─────────────────────────────────────────────────────────────────
-
-export interface MonitoredItem {
-  id: string
-  userId: string
-  name: string
-  url: string
-  priceSelector: string
-  method: ScrapingMethod
-  currentPrice: number | null
-  previousPrice: number | null
-  inStock: boolean
-  alertThreshold: number       // porcentaje, ej: 10 = avisar si baja más del 10%
-  targetPrice: number | null   // precio absoluto objetivo
-  checkInterval: CheckInterval
-  nextCheck: string            // ISO date
-  notifyTelegram: boolean
-  notifyEmail: boolean
-  active: boolean
-  createdAt: string
-}
-
 export interface PriceHistoryPoint {
-  id: string
-  itemId: string
   price: number
-  inStock: boolean
-  scrapedAt: string
-}
-
-export interface PriceChange {
-  item: MonitoredItem
-  previousPrice: number
-  currentPrice: number
-  diffPercent: number
-  inStock: boolean
-}
-
-// ─── Database rows (snake_case) ───────────────────────────────────────────────
-
-export interface ScrapeJobRow {
-  id: string
-  user_id: string | null
-  url: string
-  method: ScrapingMethod
-  status: JobStatus
-  result: Record<string, unknown>[] | null
-  rows_count: number | null
-  duration_ms: number | null
-  created_at: string
-}
-
-export interface MonitoredItemRow {
-  id: string
-  user_id: string
-  name: string
-  url: string
-  price_selector: string
-  method: ScrapingMethod
-  current_price: number | null
-  previous_price: number | null
-  in_stock: boolean
-  alert_threshold: number
-  target_price: number | null
-  check_interval: string
-  next_check: string
-  notify_telegram: boolean
-  notify_email: boolean
-  active: boolean
-  created_at: string
-}
-
-export interface PriceHistoryRow {
-  id: string
-  item_id: string
-  price: number
-  in_stock: boolean
   scraped_at: string
+  in_stock?: boolean
 }
 
-export interface AnonymousUsageRow {
-  ip: string
-  count: number
-  reset_at: string
-}
-
-// ─── API responses ────────────────────────────────────────────────────────────
-
-export interface ApiError {
-  error: string
-  code?: string
-}
-
-export interface CronRunResult {
-  checked: number
-  alerts: number
-  errors: string[]
+export interface PriceComparison {
+  direction: 'up' | 'down' | 'same'
+  diffAbsolute: number
+  diffPercent: number
+  shouldAlert: boolean
 }
