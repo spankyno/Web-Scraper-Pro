@@ -1,8 +1,5 @@
 // app/api/export/[format]/route.ts
-// GET /api/export/json?jobId=xxx
-// GET /api/export/csv?jobId=xxx
-// GET /api/export/xml?jobId=xxx
-// GET /api/export/xlsx?jobId=xxx
+// GET /api/export/[json|csv|xml|xlsx]?jobId=xxx
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -35,8 +32,7 @@ function toCSV(data: Record<string, unknown>[]): string {
   const header = keys.join(',')
   const rows = data.map(row =>
     keys.map(k => {
-      const v = row[k]
-      const str = v == null ? '' : String(v)
+      const str = String(row[k] ?? '')
       return str.includes(',') || str.includes('"') || str.includes('\n')
         ? `"${str.replace(/"/g, '""')}"`
         : str
@@ -47,61 +43,57 @@ function toCSV(data: Record<string, unknown>[]): string {
 
 // ── XML ───────────────────────────────────────────────────────
 function toXML(data: Record<string, unknown>[], url: string): string {
-  const escape = (s: string) =>
+  const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
   const items = data.map(row => {
     const fields = Object.entries(row)
-      .map(([k, v]) => `    <${k}>${escape(String(v ?? ''))}</${k}>`)
+      .map(([k, v]) => `    <${k}>${esc(String(v ?? ''))}</${k}>`)
       .join('\n')
     return `  <item>\n${fields}\n  </item>`
   }).join('\n')
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<scrape_results source="${escape(url)}">`,
+    `<scrape_results source="${esc(url)}">`,
     items,
     '</scrape_results>',
   ].join('\n')
 }
 
 // ── XLSX ──────────────────────────────────────────────────────
-async function toXLSX(data: Record<string, unknown>[]): Promise<Buffer> {
+// Devuelve Uint8Array en lugar de Buffer para compatibilidad con BodyInit
+async function toXLSX(data: Record<string, unknown>[]): Promise<Uint8Array> {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Resultados')
 
-  if (!data.length) return Buffer.from(await wb.xlsx.writeBuffer())
+  if (data.length) {
+    const keys = Object.keys(data[0])
 
-  const keys = Object.keys(data[0])
+    ws.addRow(keys)
+    const headerRow = ws.getRow(1)
+    headerRow.eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E2330' } }
+      cell.font = { bold: true, color: { argb: 'FF00D4AA' } }
+      cell.alignment = { horizontal: 'center' }
+    })
+    headerRow.commit()
 
-  // Cabecera con color
-  ws.addRow(keys)
-  const headerRow = ws.getRow(1)
-  headerRow.eachCell(cell => {
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF1E2330' },
-    }
-    cell.font = { bold: true, color: { argb: 'FF00D4AA' } }
-    cell.alignment = { horizontal: 'center' }
-  })
-  headerRow.commit()
+    data.forEach(row => ws.addRow(keys.map(k => row[k] ?? '')))
 
-  // Datos
-  data.forEach(row => ws.addRow(keys.map(k => row[k] ?? '')))
+    ws.columns.forEach((col, i) => {
+      const maxLen = Math.max(
+        keys[i].length,
+        ...data.map(r => String(r[keys[i]] ?? '').length),
+      )
+      col.width = Math.min(maxLen + 2, 50)
+    })
+  }
 
-  // Autofit columns (aproximado)
-  ws.columns.forEach((col, i) => {
-    const maxLen = Math.max(
-      keys[i].length,
-      ...data.map(r => String(r[keys[i]] ?? '').length),
-    )
-    col.width = Math.min(maxLen + 2, 50)
-  })
-
-  return Buffer.from(await wb.xlsx.writeBuffer())
+  // writeBuffer devuelve ArrayBuffer — lo envolvemos en Uint8Array
+  const arrayBuffer = await wb.xlsx.writeBuffer()
+  return new Uint8Array(arrayBuffer)
 }
 
 export async function GET(
@@ -124,7 +116,12 @@ export async function GET(
     return NextResponse.json({ error: 'Job no encontrado' }, { status: 404 })
   }
 
-  const data = job.result as Record<string, unknown>[]
+  // result es jsonb — puede contener data[] o ser el resultado directo
+  const raw = job.result as Record<string, unknown>
+  const data: Record<string, unknown>[] = Array.isArray(raw?.data)
+    ? (raw.data as Record<string, unknown>[])
+    : [raw]
+
   const ts = new Date(job.created_at).toISOString().slice(0, 10)
   const filename = `webscraper-${ts}`
 
@@ -154,8 +151,8 @@ export async function GET(
       })
 
     case 'xlsx': {
-      const buffer = await toXLSX(data)
-      return new NextResponse(buffer, {
+      const uint8 = await toXLSX(data)
+      return new NextResponse(uint8, {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'Content-Disposition': `attachment; filename="${filename}.xlsx"`,
