@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'URL inválida' }, { status: 400 })
     }
 
-    const session = await getServerSession(authOptions)
+    const session = await getServerSession(authOptions).catch(() => null)
     const userId  = (session?.user as { id?: string })?.id ?? null
 
     if (!userId) {
