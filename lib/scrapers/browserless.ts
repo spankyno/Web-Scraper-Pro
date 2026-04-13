@@ -1,60 +1,35 @@
 // lib/scrapers/browserless.ts
-// Motor JS completo via Browserless API (Puppeteer remoto)
-// Intercepta XHR/fetch para capturar datos de variantes de producto
+// Browserless v2 API — endpoint: /chrome/function
+// Timeout ajustado a 8s para caber en el límite de 10s de Vercel Hobby
 
 import type { ScrapeResult } from '@/types'
 
-const BROWSERLESS_ENDPOINT = 'https://chrome.browserless.io/function'
-const API_KEY = process.env.BROWSERLESS_API_KEY!
+const API_KEY  = process.env.BROWSERLESS_API_KEY ?? ''
+// Browserless v2 usa /chrome/function (v1 usaba /function)
+const ENDPOINT = `https://production-sfo.browserless.io/chrome/function?token=${API_KEY}`
 
-// Este código se ejecuta DENTRO del navegador remoto de Browserless
-const BROWSER_FN = /* js */ `
+const BROWSER_FN = /* js */`
 export default async function({ page, context }) {
   const { url, selector } = context;
 
-  // Interceptar todas las respuestas XHR/fetch
-  const xhrData = [];
-  await page.setRequestInterception(true);
-  
-  page.on('request', req => req.continue());
-  
-  page.on('response', async (response) => {
-    const resUrl = response.url();
-    const ct = response.headers()['content-type'] ?? '';
-    // Capturar solo respuestas JSON de API (probables datos de producto)
-    if (
-      ct.includes('application/json') &&
-      !resUrl.includes('analytics') &&
-      !resUrl.includes('tracking') &&
-      !resUrl.includes('gtm')
-    ) {
-      try {
-        const json = await response.json();
-        xhrData.push({ url: resUrl, data: json });
-      } catch {}
-    }
-  });
-
-  // Stealth: sobreescribir propiedades que detectan headless
   await page.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
     window.chrome = { runtime: {} };
   });
 
-  await page.goto(url, {
-    waitUntil: 'networkidle2',
-    timeout: 30000,
-  });
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
 
-  // Extraer precio con el selector o con heurísticas
+  // Selectores de precio por orden de confianza
   const priceSelectors = [
     selector,
     '[itemprop="price"]',
-    '.a-price-whole',
-    '[class*="price"]:not([class*="was"]):not([class*="old"])',
-    '[data-price]',
     'meta[property="product:price:amount"]',
+    '[data-price]',
+    '.a-price-whole',
+    '[class*="price--current"]',
+    '[class*="current-price"]',
+    '[class*="precio"]',
+    '[class*="price"]:not([class*="was"]):not([class*="old"]):not([class*="original"])',
   ].filter(Boolean);
 
   let price = null;
@@ -63,61 +38,39 @@ export default async function({ page, context }) {
   for (const sel of priceSelectors) {
     try {
       const el = await page.$(sel);
-      if (el) {
-        priceText = await page.evaluate(
-          el => el.getAttribute('content') ?? el.getAttribute('data-price') ?? el.innerText,
-          el
-        );
-        if (priceText) break;
-      }
+      if (!el) continue;
+      const raw = await page.evaluate(
+        el => el.getAttribute('content') ?? el.getAttribute('data-price') ?? el.innerText,
+        el
+      );
+      if (raw && raw.trim()) { priceText = raw.trim(); break; }
     } catch {}
   }
 
-  // Limpiar precio
   if (priceText) {
-    const cleaned = priceText
-      .replace(/[€$£¥\\s]/g, '')
+    const cleaned = priceText.replace(/[^0-9.,]/g, '')
       .replace(/\\.(?=\\d{3})/g, '')
-      .replace(',', '.')
-      .trim();
+      .replace(',', '.');
     price = parseFloat(cleaned) || null;
   }
 
   const productName = await page.$eval(
-    'h1[itemprop="name"], #productTitle, .product-title, h1',
+    'h1[itemprop="name"], h1.product-title, h1.product_title, #productTitle, h1',
     el => el.innerText.trim()
   ).catch(() => '');
 
-  const inStock = await page.evaluate(() => {
-    const body = document.body.innerText.toLowerCase();
-    return !body.includes('agotado') && 
-           !body.includes('sin stock') && 
-           !body.includes('out of stock') &&
-           !body.includes('no disponible');
-  });
+  const title = await page.title();
 
-  return {
-    price,
-    priceText,
-    productName,
-    inStock,
-    xhrData: xhrData.slice(0, 5), // máx 5 respuestas JSON
-    url,
-  };
+  const bodyText = await page.evaluate(() => document.body.innerText.toLowerCase());
+  const inStock = !bodyText.includes('agotado') &&
+    !bodyText.includes('sin stock') &&
+    !bodyText.includes('out of stock') &&
+    !bodyText.includes('no disponible') &&
+    !bodyText.includes('not available');
+
+  return { price, priceText, productName, title, inStock, url };
 }
 `
-
-interface BrowserlessResult {
-  data: {
-    price: number | null
-    priceText: string
-    productName: string
-    inStock: boolean
-    xhrData: Array<{ url: string; data: unknown }>
-    url: string
-  }
-  type: string
-}
 
 export async function browserlessScrape(
   url: string,
@@ -125,48 +78,38 @@ export async function browserlessScrape(
 ): Promise<ScrapeResult> {
   const t0 = Date.now()
 
-  const res = await fetch(`${BROWSERLESS_ENDPOINT}?token=${API_KEY}`, {
-    method: 'POST',
+  if (!API_KEY) throw new Error('BROWSERLESS_API_KEY no configurada')
+
+  const res = await fetch(ENDPOINT, {
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      code: BROWSER_FN,
+    body:    JSON.stringify({
+      code:    BROWSER_FN,
       context: { url, selector: selector ?? null },
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(25_000),
   })
 
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Browserless error ${res.status}: ${err}`)
+    const body = await res.text().catch(() => '')
+    throw new Error(`Browserless ${res.status}: ${body.slice(0, 200)}`)
   }
 
-  const result: BrowserlessResult = await res.json()
-  const { price, productName, inStock, xhrData } = result.data
+  const json = await res.json()
 
-  // Buscar en las respuestas XHR datos adicionales de precio/variantes
-  const variantData = xhrData.flatMap(({ data }) => {
-    if (typeof data === 'object' && data !== null) {
-      return [data]
-    }
-    return []
-  })
+  // Browserless v2 devuelve el resultado directamente (no anidado en .data)
+  const data = json?.data ?? json
+
+  const { price, productName, title, inStock } = data
 
   return {
     success: true,
     url,
-    method: 'browserless',
-    data: [
-      {
-        url,
-        productName,
-        price,
-        inStock,
-        variantApiData: variantData.length > 0 ? variantData : undefined,
-      },
-    ],
-    price,
-    inStock,
-    productName,
-    durationMs: Date.now() - t0,
+    method:      'browserless',
+    data:        [{ url, productName: productName || title, price, inStock }],
+    price:       price ?? null,
+    inStock:     inStock ?? true,
+    productName: productName || title || '',
+    durationMs:  Date.now() - t0,
   }
 }
