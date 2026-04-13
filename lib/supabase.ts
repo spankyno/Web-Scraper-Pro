@@ -1,19 +1,17 @@
-// lib/supabase.ts
-// Cliente con service_role_key → bypassa RLS
-// Usar SOLO en rutas de servidor (API routes, server components)
-
+// lib/supabase.ts — cliente servidor con service_role (bypassa RLS)
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL!
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabaseUrl =
+  process.env.SUPABASE_URL ??
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??
+  process.env.VITE_SUPABASE_URL ?? ''
 
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error('Faltan variables de entorno de Supabase')
-}
+const serviceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
+
+if (!supabaseUrl)      console.error('[supabase] Falta SUPABASE_URL / VITE_SUPABASE_URL')
+if (!serviceRoleKey)   console.error('[supabase] Falta SUPABASE_SERVICE_ROLE_KEY')
 
 export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
+  auth: { autoRefreshToken: false, persistSession: false },
 })

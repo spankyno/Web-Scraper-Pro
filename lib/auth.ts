@@ -1,31 +1,39 @@
 // lib/auth.ts
-// NextAuth usando Supabase Auth como fuente de verdad para credenciales.
-// El login con email+password llama a supabase.auth.signInWithPassword,
-// que ya maneja hashing y verifica el email_confirmed_at internamente.
-
 import { NextAuthOptions } from 'next-auth'
 import GoogleProvider from 'next-auth/providers/google'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import { createClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from './supabase'
 
-// Cliente anon para signInWithPassword (no necesita service role)
-const supabaseAuth = createClient(
-  process.env.VITE_SUPABASE_URL!,
-  process.env.VITE_SUPABASE_ANON_KEY!,
-)
+// Lee la URL y key de Supabase probando todas las variantes de nombre
+// que pueden estar definidas en Vercel (.env usa VITE_, Next.js prefiere NEXT_PUBLIC_)
+function getSupabaseEnv() {
+  const url =
+    process.env.SUPABASE_URL ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??
+    process.env.VITE_SUPABASE_URL
+
+  const anonKey =
+    process.env.SUPABASE_ANON_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    process.env.VITE_SUPABASE_ANON_KEY
+
+  if (!url || !anonKey) {
+    console.error('[auth] Faltan variables de Supabase. Definidas:', Object.keys(process.env).filter(k => k.includes('SUPA')))
+    throw new Error('Supabase URL o ANON KEY no encontradas en variables de entorno')
+  }
+  return { url, anonKey }
+}
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
 
   providers: [
-    // ── Google OAuth ──────────────────────────────────────────────
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId:     process.env.GOOGLE_CLIENT_ID     ?? '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
     }),
 
-    // ── Email + password via Supabase Auth ────────────────────────
     CredentialsProvider({
       name: 'credentials',
       credentials: {
@@ -35,18 +43,37 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
-        const { data, error } = await supabaseAuth.auth.signInWithPassword({
+        let supabaseEnv: { url: string; anonKey: string }
+        try {
+          supabaseEnv = getSupabaseEnv()
+        } catch (e) {
+          console.error('[auth] No se pudo crear cliente Supabase:', e)
+          return null
+        }
+
+        // Crear cliente en cada llamada (evita problemas de estado compartido en serverless)
+        const supabase = createClient(supabaseEnv.url, supabaseEnv.anonKey, {
+          auth: { persistSession: false },
+        })
+
+        const { data, error } = await supabase.auth.signInWithPassword({
           email:    credentials.email,
           password: credentials.password,
         })
 
-        if (error || !data.user) return null
+        if (error) {
+          console.error('[auth] signInWithPassword error:', error.message)
+          return null
+        }
 
-        // Rechazar si el email aún no está verificado
+        if (!data.user) return null
+
         if (!data.user.email_confirmed_at) {
+          console.warn('[auth] Email no verificado:', credentials.email)
           throw new Error('EMAIL_NOT_VERIFIED')
         }
 
+        console.log('[auth] Login OK:', data.user.email)
         return {
           id:    data.user.id,
           email: data.user.email ?? '',
@@ -60,7 +87,6 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user, account }) {
       if (user) token.userId = user.id
 
-      // Google: sincronizar perfil en tabla profiles
       if (account?.provider === 'google' && user?.email) {
         await supabaseAdmin.from('profiles').upsert(
           { id: user.id, email: user.email, name: user.name ?? '', plan: 'free' },
