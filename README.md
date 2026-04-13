@@ -4,7 +4,7 @@ Monitor de precios y extractor de datos web con múltiples motores de scraping, 
 
 ---
 
-## Stack tecnológico
+## Stack tecnológico 
 
 | Capa | Tecnología |
 |------|-----------|
