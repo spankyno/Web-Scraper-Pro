@@ -91,3 +91,17 @@ export interface PriceComparison {
   diffPercent: number
   shouldAlert: boolean
 }
+
+// ─── Resultado de scraping (retornado por los motores) ────────────────────────
+export interface ScrapeResult {
+  success: boolean
+  url: string
+  method: ScrapingMethod
+  data: Record<string, unknown>[]
+  price: number | null
+  currency?: string
+  inStock?: boolean
+  productName?: string
+  durationMs: number
+  error?: string
+}

@@ -1,6 +1,7 @@
 // app/api/scrape/route.ts
 // POST /api/scrape
-// Ejecuta el motor de scraping y guarda el job en Supabase
+// Columnas reales de scrape_jobs: id, user_id, url, method, result (jsonb), duration, created_at
+// Sin: status, rows_count, duration_ms, error_msg
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
@@ -19,14 +20,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'URL inválida' }, { status: 400 })
     }
 
-    // ── Autenticación ──────────────────────────────────────────
+    // ── Auth ──────────────────────────────────────────────────────
     const session = await getServerSession(authOptions)
-    const userId = (session?.user as { id?: string })?.id ?? null
+    const userId  = (session?.user as { id?: string })?.id ?? null
 
-    // ── Rate limit para anónimos ───────────────────────────────
+    // ── Rate limit anónimos ───────────────────────────────────────
     if (!userId) {
-      const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-        ?? req.headers.get('x-real-ip')
+      const ip = req.headers.get('x-client-ip')      // puesto por middleware
+        ?? req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
         ?? '0.0.0.0'
 
       const limit = await checkAnonLimit(ip)
@@ -49,21 +50,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Crear job en Supabase ──────────────────────────────────
-    const { data: job } = await supabaseAdmin
-      .from('scrape_jobs')
-      .insert({
-        user_id: userId,
-        url,
-        method: method ?? suggestMethod(url),
-        status: 'running',
-      })
-      .select('id')
-      .single()
-
-    const jobId = job?.id
-
-    // ── Ejecutar scraping ──────────────────────────────────────
+    // ── Ejecutar scraping ─────────────────────────────────────────
     const t0 = Date.now()
     const result = await scrape({
       url,
@@ -71,21 +58,31 @@ export async function POST(req: NextRequest) {
       selector,
       aiInstruction,
     })
-    const durationMs = Date.now() - t0
+    const duration = Date.now() - t0
 
-    // ── Actualizar job con resultado ───────────────────────────
-    if (jobId) {
-      await supabaseAdmin
-        .from('scrape_jobs')
-        .update({
-          status: result.success ? 'done' : 'error',
-          result: result.data,
-          rows_count: result.data.length,
-          duration_ms: durationMs,
-          error_msg: result.error ?? null,
-        })
-        .eq('id', jobId)
-    }
+    // ── Guardar job en scrape_jobs ────────────────────────────────
+    // Columnas reales: url, method, result (jsonb), duration, user_id
+    const { data: job } = await supabaseAdmin
+      .from('scrape_jobs')
+      .insert({
+        user_id:  userId,
+        url,
+        method:   result.method,       // método que realmente se usó
+        duration,
+        result: {
+          price:              result.price,
+          price_text:         String(result.price ?? ''),
+          product_name:       result.productName ?? null,
+          in_stock:           result.inStock ?? true,
+          currency:           result.currency ?? 'EUR',
+          confidence:         result.price != null ? 90 : 0,
+          extraction_method:  result.method,
+          data:               result.data,
+          error:              result.error ?? null,
+        },
+      })
+      .select('id')
+      .single()
 
     if (!result.success) {
       return NextResponse.json(
@@ -95,15 +92,20 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      jobId,
-      ...result,
+      jobId:           job?.id ?? null,
+      url:             result.url,
+      method:          result.method,
+      data:            result.data,
+      price:           result.price,
+      productName:     result.productName,
+      inStock:         result.inStock,
+      currency:        result.currency,
+      durationMs:      duration,
       suggestedMethod: suggestMethod(url),
     })
+
   } catch (err) {
     console.error('[/api/scrape]', err)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }
