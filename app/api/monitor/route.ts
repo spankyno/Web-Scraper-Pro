@@ -44,16 +44,6 @@ export async function POST(req: NextRequest) {
   if (!url)   return NextResponse.json({ error: 'Falta url' }, { status: 400 })
   if (!title) return NextResponse.json({ error: 'Falta title' }, { status: 400 })
 
-  // Límite plan free
-  //const { count } = await supabaseAdmin
-  //  .from('monitored_items').select('id', { count: 'exact', head: true })
-  //  .eq('user_id', userId).eq('is_active', true)
-  //const { data: profile } = await supabaseAdmin
-  //  .from('profiles').select('plan').eq('id', userId).single()
-  //if (profile?.plan === 'free' && (count ?? 0) >= 3) {
-  //  return NextResponse.json({ error: 'Plan free: máximo 3 items activos.' }, { status: 403 })
-  //}
-
   // ── Scrape inmediato para obtener el precio real ───────────
   let initialPrice = 0
   let initialStatus = 'stable'
@@ -66,7 +56,7 @@ export async function POST(req: NextRequest) {
       selector: price_selector ?? undefined,
     })
     if (scrapeResult.price != null) {
-      initialPrice  = scrapeResult.price
+      initialPrice   = scrapeResult.price
       initialInStock = scrapeResult.inStock ?? true
       initialStatus  = initialInStock ? 'stable' : 'out_of_stock'
     }
@@ -90,7 +80,7 @@ export async function POST(req: NextRequest) {
       is_active:           true,
       status:              initialStatus,
       price_current:       initialPrice,
-      price_previous:      initialPrice,   // mismo al crear
+      price_previous:      initialPrice,
       pricecurrency:       'EUR',
       in_stock:            initialInStock,
       last_checked:        now,
