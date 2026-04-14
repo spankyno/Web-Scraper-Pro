@@ -214,16 +214,39 @@ export default function HomePage() {
           {/* ── PANEL DE EXTRACCIÓN ── */}
           <div style={{ ...css.card, padding: 20 }}>
 
-            {/* URL + botón */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-              <input
-                style={{ ...css.input, flex: 1, fontFamily: 'monospace' }}
-                type="url"
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleScrape()}
-                placeholder="https://www.amazon.es/dp/... o cualquier URL de producto"
-              />
+            {/* URL + botón pegar + botón extraer */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <div style={{ flex: 1, position: 'relative', display: 'flex' }}>
+                <input
+                  style={{ ...css.input, flex: 1, fontFamily: 'monospace', paddingRight: 38 }}
+                  type="url"
+                  value={url}
+                  onChange={e => setUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleScrape()}
+                  placeholder="https://www.amazon.es/dp/... o cualquier URL de producto"
+                />
+                <button
+                  onClick={async () => {
+                    try {
+                      const text = await navigator.clipboard.readText()
+                      setUrl(text.trim())
+                    } catch { /* sin permisos de portapapeles */ }
+                  }}
+                  title="Pegar URL del portapapeles"
+                  style={{
+                    position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 5, color: '#8b909e', cursor: 'pointer',
+                    fontSize: 13, width: 26, height: 26,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget.style.color = '#00d4aa'); (e.currentTarget.style.borderColor = 'rgba(0,212,170,0.3)') }}
+                  onMouseLeave={e => { (e.currentTarget.style.color = '#8b909e'); (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)') }}
+                >
+                  📋
+                </button>
+              </div>
               <button
                 onClick={handleScrape}
                 disabled={loading || !url.trim()}
@@ -466,6 +489,7 @@ export default function HomePage() {
         onSave={handleSaveMonitor as never}
         initialUrl={result?.url ?? ''}
         initialTitle={result?.productName ?? ''}
+        initialPrice={result?.price ?? null}
         editItem={null}
       />
     </div>
