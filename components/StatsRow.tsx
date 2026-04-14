@@ -69,41 +69,26 @@ export default function StatsRow({ items }: Props) {
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-      gap: 12,
+      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+      gap: 8,
     }}>
       {stats.map(s => (
-        <div
-          key={s.label}
-          style={{
-            background: '#1e2330',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 12,
-            padding: '16px',
-          }}
-        >
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            marginBottom: 8,
-          }}>
-            <span style={{ fontSize: 14 }}>{s.icon}</span>
-            <span style={{
-              fontSize: 10, color: '#555c6e',
-              textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 500,
-            }}>
+        <div key={s.label} style={{
+          background: '#1e2330',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 10,
+          padding: '10px 12px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+            <span style={{ fontSize: 12 }}>{s.icon}</span>
+            <span style={{ fontSize: 9, color: '#555c6e', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 500 }}>
               {s.label}
             </span>
           </div>
-          <p style={{
-            fontSize: 26, fontWeight: 700, fontFamily: 'monospace',
-            color: s.color, marginBottom: 3, lineHeight: 1,
-          }}>
+          <p style={{ fontSize: 18, fontWeight: 700, fontFamily: 'monospace', color: s.color, marginBottom: 2, lineHeight: 1 }}>
             {s.value}
           </p>
-          <p style={{
-            fontSize: 11, color: '#555c6e',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>
+          <p style={{ fontSize: 10, color: '#555c6e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {s.sub}
           </p>
         </div>

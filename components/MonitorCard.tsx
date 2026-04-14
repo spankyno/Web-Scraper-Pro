@@ -212,16 +212,15 @@ export default function MonitorCard({ item, history, onToggle, onDelete, onCheck
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
         <span style={{
           fontFamily: 'monospace', fontSize: 24, fontWeight: 700,
-          color: item.status === 'out_of_stock' ? '#ff6b87' : '#00d4aa',
+          color: item.status === 'out_of_stock' ? '#ff6b87'
+            : (current != null && current > 0) ? '#00d4aa'
+            : '#555c6e',
         }}>
-          {current != null ? formatPrice(current, currency) : '—'}
+          {(current != null && current > 0) ? formatPrice(current, currency) : 'Sin precio aún'}
         </span>
 
-        {previous != null && previous !== current && (
-          <span style={{
-            fontFamily: 'monospace', fontSize: 13, color: '#555c6e',
-            textDecoration: 'line-through',
-          }}>
+        {previous != null && previous > 0 && previous !== current && (
+          <span style={{ fontFamily: 'monospace', fontSize: 13, color: '#555c6e', textDecoration: 'line-through' }}>
             {formatPrice(previous, currency)}
           </span>
         )}
@@ -237,6 +236,24 @@ export default function MonitorCard({ item, history, onToggle, onDelete, onCheck
           </span>
         )}
       </div>
+
+      {/* ── Precio objetivo ── */}
+      {item.alert_price != null && item.alert_price > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#555c6e' }}>🎯 Objetivo:</span>
+          <span style={{
+            fontSize: 13, fontWeight: 600, fontFamily: 'monospace',
+            color: (current != null && current > 0 && current <= item.alert_price) ? '#34d399' : '#8b5cf6',
+          }}>
+            {formatPrice(item.alert_price, currency)}
+          </span>
+          {current != null && current > 0 && current > item.alert_price && (
+            <span style={{ fontSize: 10, color: '#555c6e' }}>
+              (faltan {formatPrice(current - item.alert_price, currency)})
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Sparkline ── */}
       <div style={{

@@ -34,6 +34,7 @@ interface Props {
   onSave: (data: Partial<MonitoredItem>) => Promise<void>
   initialUrl?: string
   initialTitle?: string
+  initialPrice?: number | null
   editItem?: MonitoredItem | null
 }
 
@@ -76,7 +77,7 @@ const labelStyle: React.CSSProperties = {
 }
 
 export default function AddMonitorModal({
-  open, onClose, onSave, initialUrl, initialTitle, editItem,
+  open, onClose, onSave, initialUrl, initialTitle, initialPrice, editItem,
 }: Props) {
   const [form, setForm] = useState<FormState>(DEFAULT_FORM)
   const [saving, setSaving] = useState(false)
@@ -100,12 +101,14 @@ export default function AddMonitorModal({
     } else {
       setForm({
         ...DEFAULT_FORM,
-        url: initialUrl ?? '',
-        title: initialTitle ?? '',
+        url:         initialUrl   ?? '',
+        title:       initialTitle ?? '',
+        threshold:   0,
+        alert_price: initialPrice != null ? String(initialPrice) : '',
       })
     }
     setError('')
-  }, [editItem, initialUrl, initialTitle, open])
+  }, [editItem, initialUrl, initialTitle, initialPrice, open])
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -211,6 +214,38 @@ export default function AddMonitorModal({
             />
           </div>
 
+          {/* Precio actual (informativo) + Precio objetivo */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={labelStyle}>Precio actual detectado</label>
+              <div style={{
+                ...inputStyle,
+                display: 'flex', alignItems: 'center',
+                background: 'rgba(0,212,170,0.06)',
+                border: '1px solid rgba(0,212,170,0.2)',
+                color: initialPrice != null ? '#00d4aa' : '#555c6e',
+                fontFamily: 'monospace', fontWeight: 700, fontSize: 16,
+                cursor: 'default',
+              }}>
+                {initialPrice != null ? `€${initialPrice.toFixed(2)}` : '—'}
+              </div>
+            </div>
+            <div>
+              <label style={labelStyle}>Precio objetivo (€)</label>
+              <input
+                style={inputStyle}
+                type="number"
+                min={0} step={0.01}
+                value={form.alert_price}
+                onChange={e => set('alert_price', e.target.value)}
+                placeholder="Ej: 150.00"
+              />
+              <p style={{ fontSize: 10, color: '#555c6e', marginTop: 4 }}>
+                Avisar cuando baje de este precio
+              </p>
+            </div>
+          </div>
+
           {/* Selector de precio */}
           <div>
             <label style={labelStyle}>Selector de precio (CSS o XPath)</label>
@@ -248,38 +283,6 @@ export default function AddMonitorModal({
                   <option key={i.value} value={i.value}>{i.label}</option>
                 ))}
               </select>
-            </div>
-          </div>
-
-          {/* Umbral + Precio objetivo */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <label style={labelStyle}>Umbral de alerta (%)</label>
-              <input
-                style={inputStyle}
-                type="number"
-                min={0} max={100} step={0.5}
-                value={form.threshold}
-                onChange={e => set('threshold', Number(e.target.value))}
-                placeholder="5"
-              />
-              <p style={{ fontSize: 10, color: '#555c6e', marginTop: 4 }}>
-                Avisar si el precio baja más de este %
-              </p>
-            </div>
-            <div>
-              <label style={labelStyle}>Precio objetivo (€)</label>
-              <input
-                style={inputStyle}
-                type="number"
-                min={0} step={0.01}
-                value={form.alert_price}
-                onChange={e => set('alert_price', e.target.value)}
-                placeholder="Ej: 150.00"
-              />
-              <p style={{ fontSize: 10, color: '#555c6e', marginTop: 4 }}>
-                Avisar si baja de este precio
-              </p>
             </div>
           </div>
 
