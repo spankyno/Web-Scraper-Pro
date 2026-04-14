@@ -45,14 +45,14 @@ export async function POST(req: NextRequest) {
   if (!title) return NextResponse.json({ error: 'Falta title' }, { status: 400 })
 
   // Límite plan free
-  const { count } = await supabaseAdmin
-    .from('monitored_items').select('id', { count: 'exact', head: true })
-    .eq('user_id', userId).eq('is_active', true)
-  const { data: profile } = await supabaseAdmin
-    .from('profiles').select('plan').eq('id', userId).single()
-  if (profile?.plan === 'free' && (count ?? 0) >= 3) {
-    return NextResponse.json({ error: 'Plan free: máximo 3 items activos.' }, { status: 403 })
-  }
+  //const { count } = await supabaseAdmin
+  //  .from('monitored_items').select('id', { count: 'exact', head: true })
+  //  .eq('user_id', userId).eq('is_active', true)
+  //const { data: profile } = await supabaseAdmin
+  //  .from('profiles').select('plan').eq('id', userId).single()
+  //if (profile?.plan === 'free' && (count ?? 0) >= 3) {
+  //  return NextResponse.json({ error: 'Plan free: máximo 3 items activos.' }, { status: 403 })
+  //}
 
   // ── Scrape inmediato para obtener el precio real ───────────
   let initialPrice = 0
