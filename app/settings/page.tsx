@@ -2,8 +2,9 @@
 'use client'
 
 export const dynamic = 'force-dynamic'
+
 import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useSession, SessionProvider } from 'next-auth/react'
 
 const inputStyle: React.CSSProperties = {
   width: '100%', background: '#0d1117',
@@ -36,8 +37,9 @@ const INTERVALS = [
   { value: '48h', label: 'Cada 2 días' },
 ]
 
-export default function SettingsPage() {
-  const { data: session } = useSession()
+function SettingsContent() {
+  const sessionData = useSession()
+  const session = sessionData?.data
   const [saving,   setSaving]   = useState(false)
   const [saved,    setSaved]    = useState('')
   const [testing,  setTesting]  = useState(false)
@@ -260,5 +262,13 @@ export default function SettingsPage() {
 
       </div>
     </div>
+  )
+}
+
+export default function SettingsPage() {
+  return (
+    <SessionProvider>
+      <SettingsContent />
+    </SessionProvider>
   )
 }
