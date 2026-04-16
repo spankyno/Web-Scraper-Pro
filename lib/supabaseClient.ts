@@ -1,18 +1,19 @@
 // lib/supabaseClient.ts
-// Cliente con anon_key → respeta RLS
-// Usar en componentes del cliente y en rutas server-side para auth de usuario
+// Cliente Supabase para componentes del navegador.
+// Usa @supabase/ssr para sincronizar la sesión en cookies (no solo localStorage),
+// de modo que el middleware y los Route Handlers puedan leerla sin problemas.
 
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 
 const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ??
-  process.env.SUPABASE_URL ?? ''
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 
 const anonKey =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-  process.env.SUPABASE_ANON_KEY ?? ''
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 
 if (!supabaseUrl) console.error('[supabaseClient] Falta NEXT_PUBLIC_SUPABASE_URL')
 if (!anonKey)     console.error('[supabaseClient] Falta NEXT_PUBLIC_SUPABASE_ANON_KEY')
 
-export const supabase = createClient(supabaseUrl, anonKey)
+// createBrowserClient de @supabase/ssr guarda la sesión en cookies además
+// de localStorage, lo que permite que el middleware SSR la lea correctamente.
+export const supabase = createBrowserClient(supabaseUrl, anonKey)
