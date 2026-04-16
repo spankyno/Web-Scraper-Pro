@@ -1,13 +1,10 @@
 // middleware.ts
-// 1. Páginas privadas (/dashboard, /settings…) → redirige a /login si no hay sesión
-// 2. Páginas de auth (/login, /signup…)        → redirige a /dashboard si ya hay sesión
-// 3. /api/scrape sin sesión                     → añade IP real y delega rate-limit al handler
-// 4. /api/monitor sin sesión                    → 401 directamente
-//
-// Autenticación: Supabase nativo (sin NextAuth)
+// Autenticación con Supabase SSR (@supabase/ssr).
+// IMPORTANTE: Este middleware refresca el token automáticamente y lo persiste
+// en cookies, lo que garantiza que las rutas protegidas funcionen correctamente.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
 
 const supabaseUrl =
   process.env.SUPABASE_URL ??
@@ -20,75 +17,56 @@ const anonKey =
 const PRIVATE_PAGES = ['/dashboard', '/settings', '/profile']
 const AUTH_PAGES    = ['/login', '/signup', '/forgot-password', '/reset-password']
 
-async function getSessionUserId(req: NextRequest): Promise<string | null> {
-  const cookieHeader = req.headers.get('cookie') ?? ''
-  const accessToken  = extractSupabaseToken(cookieHeader)
-  if (!accessToken) return null
-
-  try {
-    const supabase = createClient(supabaseUrl, anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    })
-    const { data: { user }, error } = await supabase.auth.getUser()
-    if (error || !user) return null
-    return user.id
-  } catch {
-    return null
-  }
-}
-
-function extractSupabaseToken(cookieStr: string): string | null {
-  const cookies = Object.fromEntries(
-    cookieStr.split(';').map(c => {
-      const [k, ...v] = c.trim().split('=')
-      return [k.trim(), decodeURIComponent(v.join('='))]
-    })
-  )
-  for (const [key, value] of Object.entries(cookies)) {
-    if (key.includes('auth-token') || key === 'supabase-auth-token') {
-      try {
-        const parsed = JSON.parse(value)
-        if (Array.isArray(parsed) && parsed[0]) return parsed[0]
-        if (parsed?.access_token) return parsed.access_token
-      } catch {
-        if (value && !value.includes(' ')) return value
-      }
-    }
-  }
-  return null
-}
-
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
+  let res = NextResponse.next({ request: req })
+
+  // Crear cliente SSR que lee y escribe cookies en la response
+  const supabase = createServerClient(supabaseUrl, anonKey, {
+    cookies: {
+      getAll() {
+        return req.cookies.getAll()
+      },
+      setAll(cookiesToSet) {
+        // Escribir cookies en la request (para que el código siguiente las vea)
+        cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value))
+        // Re-crear la response con las cookies actualizadas
+        res = NextResponse.next({ request: req })
+        cookiesToSet.forEach(({ name, value, options }) =>
+          res.cookies.set(name, value, options)
+        )
+      },
+    },
+  })
+
+  // Obtener usuario — esto también refresca el token si está expirado
+  const { data: { user } } = await supabase.auth.getUser()
+  const isLoggedIn = !!user
 
   // ── Páginas privadas → redirigir a login si no hay sesión ────
   if (PRIVATE_PAGES.some(p => pathname.startsWith(p))) {
-    const userId = await getSessionUserId(req)
-    if (!userId) {
+    if (!isLoggedIn) {
       const loginUrl = new URL('/login', req.url)
       loginUrl.searchParams.set('callbackUrl', pathname)
       return NextResponse.redirect(loginUrl)
     }
-    return NextResponse.next()
+    return res
   }
 
   // ── Páginas de auth → redirigir a dashboard si ya hay sesión ─
   if (AUTH_PAGES.some(p => pathname.startsWith(p))) {
-    const userId = await getSessionUserId(req)
-    if (userId) {
+    if (isLoggedIn) {
       return NextResponse.redirect(new URL('/dashboard', req.url))
     }
-    return NextResponse.next()
+    return res
   }
 
   // ── /api/monitor → requiere sesión ───────────────────────────
   if (pathname.startsWith('/api/monitor')) {
-    const userId = await getSessionUserId(req)
-    if (!userId) {
+    if (!isLoggedIn) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
-    return NextResponse.next()
+    return res
   }
 
   // ── /api/scrape → añadir IP real para el rate limiter ────────
@@ -98,12 +76,11 @@ export async function middleware(req: NextRequest) {
       req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
       req.headers.get('x-real-ip') ??
       '0.0.0.0'
-    const res = NextResponse.next()
     res.headers.set('x-client-ip', ip)
     return res
   }
 
-  return NextResponse.next()
+  return res
 }
 
 export const config = {
